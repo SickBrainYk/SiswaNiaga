@@ -1,17 +1,17 @@
 <?php
 require_once '../config/database.php';
 require_once '../config/functions.php';
-checkRole(['student', 'admin']); // Admin juga bisa akses untuk edit
+checkRole(['student', 'admin']); 
 require_once '../layout/header.php';
 
-// [BARU] Ambil daftar kategori baku dari functions.php
 $categories = getCategories();
-
 $id = $_GET['id'] ?? null;
 $product = null;
+$showModal = false; 
+$adminData = null; 
 
+// 1. Ambil Data Produk (Jika Edit)
 if ($id) {
-    // Jika Admin, bisa edit punya siapa saja di sekolahnya, Jika Siswa hanya punya sendiri
     $sql = "SELECT * FROM products WHERE id = ?";
     if($_SESSION['role'] == 'student') $sql .= " AND user_id = " . $_SESSION['user_id'];
     elseif($_SESSION['role'] == 'admin') $sql .= " AND school_id = " . $_SESSION['school_id'];
@@ -22,19 +22,18 @@ if ($id) {
     if(!$product) die("Akses ditolak atau produk tidak ditemukan.");
 }
 
+// 2. Logic Simpan Data
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    // [BARU] Ambil input category
     $category = sanitize($_POST['category']);
     $title = sanitize($_POST['title']);
     $desc = sanitize($_POST['description']);
     $price = $_POST['price'];
     $imageName = $product['image'] ?? '';
 
-    // Logic Gambar
+    // Logic Upload Gambar
     if (!empty($_FILES['image']['name'])) {
         $upload = uploadImage($_FILES['image']);
         if ($upload['status']) {
-            // Hapus gambar lama jika ada
             if ($product && file_exists("../uploads/" . $product['image'])) {
                 unlink("../uploads/" . $product['image']);
             }
@@ -45,20 +44,25 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     }
 
     if (!isset($error)) {
+        // Eksekusi Query
         if ($id) {
-            // [BARU] Update Query dengan Category
             $sql = "UPDATE products SET category=?, title=?, description=?, price=?, image=?, status='pending' WHERE id=?";
             $stmt = $pdo->prepare($sql);
             $stmt->execute([$category, $title, $desc, $price, $imageName, $id]);
         } else {
-            // [BARU] Insert Query dengan Category
             $sql = "INSERT INTO products (user_id, school_id, category, title, description, price, image) VALUES (?, ?, ?, ?, ?, ?, ?)";
             $stmt = $pdo->prepare($sql);
             $stmt->execute([$_SESSION['user_id'], $_SESSION['school_id'], $category, $title, $desc, $price, $imageName]);
         }
         
-        $redirect = ($_SESSION['role'] == 'student') ? 'dashboard.php' : '../admin/dashboard.php';
-        echo "<script>alert('Berhasil disimpan!'); window.location='$redirect';</script>";
+        // AMBIL DATA ADMIN SEKOLAH
+        $school_id = $_SESSION['school_id'];
+        $stmtAdmin = $pdo->prepare("SELECT name, phone FROM users WHERE school_id = ? AND role = 'admin' LIMIT 1");
+        $stmtAdmin->execute([$school_id]);
+        $adminData = $stmtAdmin->fetch();
+
+        // Aktifkan Modal
+        $showModal = true;
     }
 }
 ?>
@@ -102,14 +106,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
         <div>
             <label class="block text-sm font-semibold text-gray-700 mb-2">Foto Produk</label>
-            
             <?php if(isset($product['image'])): ?>
                 <div class="mb-3">
                     <img src="../uploads/<?= $product['image'] ?>" class="w-32 h-32 object-cover rounded-lg border">
                     <p class="text-xs text-gray-500 mt-1">Foto saat ini</p>
                 </div>
             <?php endif; ?>
-
             <input type="file" name="image" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20" <?= $id ? '' : 'required' ?>>
             <p class="text-xs text-gray-400 mt-1">Format: JPG/PNG, Maks 2MB.</p>
         </div>
@@ -121,3 +123,52 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         </div>
     </form>
 </div>
+
+<?php if($showModal): ?>
+<div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8 text-center">
+        
+        <div class="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-green-100 mb-4">
+            <svg class="h-10 w-10 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+            </svg>
+        </div>
+
+        <h3 class="text-2xl font-bold text-gray-800 mb-2">Upload Berhasil!</h3>
+        <p class="text-gray-600 mb-6">
+            Karyamu sudah tersimpan. Silakan temui atau hubungi Admin Sekolah untuk persetujuan.
+        </p>
+
+        <?php if($adminData): ?>
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-5 mb-6">
+                <p class="text-xs text-gray-500 font-bold uppercase tracking-wider mb-1">Nomor Admin Sekolah</p>
+                <p class="text-3xl font-extrabold text-blue-800 tracking-wide select-all">
+                    <?= $adminData['phone'] ?>
+                </p>
+                <p class="text-sm text-gray-600 mt-1 font-medium">(<?= $adminData['name'] ?>)</p>
+            </div>
+        <?php else: ?>
+            <p class="text-red-500 mb-4 text-sm bg-red-50 p-2 rounded">Data Admin Sekolah tidak ditemukan.</p>
+        <?php endif; ?>
+
+        <a href="dashboard.php" class="block w-full bg-gray-800 text-white font-bold py-3 rounded-lg hover:bg-gray-900 transition">
+            OK, Kembali ke Dashboard
+        </a>
+
+    </div>
+</div>
+
+<style>
+    @keyframes fade-in {
+        from { opacity: 0; transform: scale(0.95); }
+        to { opacity: 1; transform: scale(1); }
+    }
+    .animate-fade-in {
+        animation: fade-in 0.2s ease-out forwards;
+    }
+    /* Agar nomor HP bisa dicopy dengan mudah */
+    .select-all {
+        user-select: all;
+    }
+</style>
+<?php endif; ?>

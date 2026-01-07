@@ -3,46 +3,62 @@ require_once 'config/database.php';
 require_once 'config/functions.php';
 require_once 'layout/header.php'; 
 
-// --- 1. LOGIC PENCARIAN & FILTER ---
+// --- 1. CONFIG PAGINATION & FILTER ---
+$page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+$limit = 12; // Tampilkan 12 produk per halaman
+$offset = ($page - 1) * $limit;
+
 $search = isset($_GET['q']) ? sanitize($_GET['q']) : '';
 $school_filter = isset($_GET['school']) ? sanitize($_GET['school']) : '';
 $cat_filter = isset($_GET['category']) ? sanitize($_GET['category']) : '';
 
-// Base Query (Pastikan hanya ambil yang Active)
+// --- 2. BANGUN QUERY 'WHERE' (Dipakai untuk Hitung Total & Ambil Data) ---
+$whereClause = "WHERE p.status = 'active'";
+
+if($search) {
+    // Pakai kurung (...) agar logika OR tidak merusak filter status
+    $whereClause .= " AND (p.title LIKE '%$search%' OR p.description LIKE '%$search%')";
+}
+if($school_filter) {
+    $whereClause .= " AND p.school_id = '$school_filter'";
+}
+if($cat_filter) {
+    $whereClause .= " AND p.category = '$cat_filter'";
+}
+
+// --- 3. QUERY 1: HITUNG TOTAL DATA (Untuk Pagination) ---
+// Kita perlu tahu ada berapa total produk yg cocok untuk menentukan jumlah halaman
+$sqlCount = "SELECT COUNT(*) as total 
+             FROM products p 
+             JOIN users u ON p.user_id = u.id 
+             JOIN schools s ON p.school_id = s.id 
+             $whereClause";
+$stmtCount = $pdo->query($sqlCount);
+$total_rows = $stmtCount->fetchColumn();
+$total_pages = ceil($total_rows / $limit);
+
+// --- 4. QUERY 2: AMBIL DATA PRODUK (Dengan LIMIT & OFFSET) ---
 $sql = "SELECT p.*, u.name as student_name, u.phone, s.name as school_name 
         FROM products p 
         JOIN users u ON p.user_id = u.id 
         JOIN schools s ON p.school_id = s.id 
-        WHERE p.status = 'active'";
+        $whereClause 
+        ORDER BY p.created_at DESC 
+        LIMIT $limit OFFSET $offset";
 
-// [PERBAIKAN DISINI] Tambah filter pencarian (Judul ATAU Deskripsi)
-if($search) {
-    // Menggunakan kurung ( ... ) sangat penting agar logika OR tidak merusak filter status='active'
-    $sql .= " AND (p.title LIKE '%$search%' OR p.description LIKE '%$search%')";
-}
-
-// Filter Sekolah
-if($school_filter) {
-    $sql .= " AND p.school_id = '$school_filter'";
-}
-
-// Filter Kategori
-if($cat_filter) {
-    $sql .= " AND p.category = '$cat_filter'";
-}
-
-// Order by terbaru
-$sql .= " ORDER BY p.created_at DESC";
-
-// Eksekusi Query Produk
 $stmt = $pdo->query($sql);
 $products = $stmt->fetchAll();
 
-// Ambil data sekolah untuk Dropdown Filter
+// Ambil data pendukung (Sekolah & Kategori untuk filter)
 $schools = $pdo->query("SELECT * FROM schools ORDER BY name ASC")->fetchAll();
-
-// Ambil daftar kategori
 $categories = getCategories(); 
+
+// Helper: Fungsi membuat URL agar filter tidak hilang saat pindah halaman
+function buildUrl($newPage) {
+    $params = $_GET;
+    $params['page'] = $newPage;
+    return '?' . http_build_query($params);
+}
 ?>
 
 <div class="max-w-7xl mx-auto px-4 py-8 min-h-screen">
@@ -56,8 +72,7 @@ $categories = getCategories();
         </p>
     </div>
 
-    <form class="flex flex-col md:flex-row gap-4 mb-10 max-w-5xl mx-auto">
-        
+    <form class="flex flex-col md:flex-row gap-4 mb-6 max-w-5xl mx-auto">
         <div class="flex-1 relative">
             <span class="absolute left-3 top-3 text-gray-400">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
@@ -88,6 +103,10 @@ $categories = getCategories();
             Cari
         </button>
     </form>
+
+    <div class="text-center text-sm text-gray-500 mb-8">
+        Menampilkan <b><?= count($products) ?></b> dari total <b><?= $total_rows ?></b> karya.
+    </div>
 
     <?php if (count($products) > 0): ?>
         <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 pb-12">
@@ -133,21 +152,15 @@ $categories = getCategories();
 
                         <div class="grid grid-cols-2 gap-3 pt-4 border-t border-gray-100">
                             <a href="detail.php?id=<?= $p['id'] ?>" class="flex items-center justify-center gap-2 bg-gray-50 text-gray-600 py-2.5 rounded-lg hover:bg-gray-100 hover:text-primary transition-colors text-sm font-semibold group/btn">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 group-hover/btn:text-primary transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                </svg>
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 group-hover/btn:text-primary transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                                 Detail
                             </a>
-
                             <?php 
                             $waText = "Halo, saya tertarik dengan karya *{$p['title']}* yang ada di SiswaNiaga."; 
                             $waLink = "https://wa.me/{$p['phone']}?text=" . urlencode($waText);
                             ?>
                             <a href="<?= $waLink ?>" target="_blank" class="flex items-center justify-center gap-2 bg-green-500 text-white py-2.5 rounded-lg hover:bg-green-600 transition-colors text-sm font-semibold shadow-sm hover:shadow-md">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
-                                    <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0012.04 2zM12.05 20.21c-1.5 0-2.96-.39-4.27-1.15l-.3-.18-3.11.82.83-3.04-.2-.31a8.154 8.154 0 01-1.26-4.44c0-4.52 3.67-8.19 8.19-8.19 2.19 0 4.24.85 5.78 2.39 1.54 1.54 2.39 3.59 2.39 5.78 0 4.51-3.68 8.18-8.19 8.18zm4.52-6.13c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.12-.17.25-.64.81-.78.97-.14.17-.29.19-.54.06-.25-.12-1.05-.39-1.99-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.02-.38.11-.51.11-.11.25-.29.37-.43.12-.14.16-.23.24-.39.08-.17.04-.31-.02-.43-.06-.12-.56-1.34-.76-1.84-.2-.48-.41-.42-.56-.43h-.48c-.17 0-.43.06-.66.31-.22.25-.87.85-.87 2.07 0 1.22.89 2.39 1.01 2.56.12.17 1.75 2.67 4.23 3.74.59.26 1.05.41 1.41.52.59.19 1.13.16 1.56.1.48-.07 1.47-.6 1.67-1.18.21-.58.21-1.07.14-1.18-.07-.11-.24-.18-.49-.3z"/>
-                                </svg>
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0012.04 2zM12.05 20.21c-1.5 0-2.96-.39-4.27-1.15l-.3-.18-3.11.82.83-3.04-.2-.31a8.154 8.154 0 01-1.26-4.44c0-4.52 3.67-8.19 8.19-8.19 2.19 0 4.24.85 5.78 2.39 1.54 1.54 2.39 3.59 2.39 5.78 0 4.51-3.68 8.18-8.19 8.18zm4.52-6.13c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.12-.17.25-.64.81-.78.97-.14.17-.29.19-.54.06-.25-.12-1.05-.39-1.99-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.02-.38.11-.51.11-.11.25-.29.37-.43.12-.14.16-.23.24-.39.08-.17.04-.31-.02-.43-.06-.12-.56-1.34-.76-1.84-.2-.48-.41-.42-.56-.43h-.48c-.17 0-.43.06-.66.31-.22.25-.87.85-.87 2.07 0 1.22.89 2.39 1.01 2.56.12.17 1.75 2.67 4.23 3.74.59.26 1.05.41 1.41.52.59.19 1.13.16 1.56.1.48-.07 1.47-.6 1.67-1.18.21-.58.21-1.07.14-1.18-.07-.11-.24-.18-.49-.3z"/></svg>
                                 Beli
                             </a>
                         </div>
@@ -156,6 +169,54 @@ $categories = getCategories();
                 
             <?php endforeach; ?>
         </div>
+
+        <?php if($total_pages > 1): ?>
+        <div class="flex justify-center mt-12">
+            <nav class="flex items-center gap-2">
+                
+                <?php if($page > 1): ?>
+                    <a href="<?= buildUrl($page - 1) ?>" class="w-10 h-10 flex items-center justify-center rounded-full border border-gray-300 text-gray-500 hover:bg-gray-50 hover:text-primary transition-all">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                        </svg>
+                    </a>
+                <?php else: ?>
+                    <span class="w-10 h-10 flex items-center justify-center rounded-full border border-gray-200 text-gray-300 cursor-not-allowed">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                        </svg>
+                    </span>
+                <?php endif; ?>
+
+                <?php for($i = 1; $i <= $total_pages; $i++): ?>
+                    <?php if($i == $page): ?>
+                        <span class="w-10 h-10 flex items-center justify-center rounded-full bg-primary text-white border border-primary font-bold shadow-md">
+                            <?= $i ?>
+                        </span>
+                    <?php else: ?>
+                        <a href="<?= buildUrl($i) ?>" class="w-10 h-10 flex items-center justify-center rounded-full border border-gray-300 text-gray-600 hover:bg-gray-50 hover:text-primary transition-all">
+                            <?= $i ?>
+                        </a>
+                    <?php endif; ?>
+                <?php endfor; ?>
+
+                <?php if($page < $total_pages): ?>
+                    <a href="<?= buildUrl($page + 1) ?>" class="w-10 h-10 flex items-center justify-center rounded-full border border-gray-300 text-gray-500 hover:bg-gray-50 hover:text-primary transition-all">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                        </svg>
+                    </a>
+                <?php else: ?>
+                    <span class="w-10 h-10 flex items-center justify-center rounded-full border border-gray-200 text-gray-300 cursor-not-allowed">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                        </svg>
+                    </span>
+                <?php endif; ?>
+
+            </nav>
+        </div>
+        <?php endif; ?>
     
     <?php else: ?>
         
