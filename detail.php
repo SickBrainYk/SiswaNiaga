@@ -187,3 +187,6 @@ document.addEventListener('DOMContentLoaded', function() {
         animation: fade-in 0.2s ease-out forwards;
     }
 </style>
+<?php require_once 'layout/footer.php'; ?>
+</body>
+</html>
