@@ -32,15 +32,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_report'])) {
     }
 }
 
-// Ambil daftar kategori untuk label
-$categories = getCategories();
+// Ambil daftar kategori untuk label (pastikan fungsi getCategories ada di functions.php)
+// Jika error, bisa dikomentari baris ini dan bagian label kategori di bawah
+$categories = function_exists('getCategories') ? getCategories() : [];
 
 require_once 'layout/header.php';
 ?>
 
 <div class="max-w-7xl mx-auto px-4 py-8">
     
-    <a href="index.php" class="flex items-center text-gray-500 hover:text-primary mb-6 transition-colors group">
+    <a href="index.php" class="flex items-center text-gray-500 hover:text-primary mb-6 transition-colors group w-fit">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1 group-hover:-translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
         </svg>
@@ -50,9 +51,36 @@ require_once 'layout/header.php';
     <div class="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-100">
         <div class="md:flex">
             
-            <div class="md:w-1/2 bg-gray-100 relative group">
-                <img src="uploads/<?= $product['image'] ?>" alt="<?= $product['title'] ?>" class="w-full h-96 md:h-full object-cover">
-                <div class="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-300"></div>
+            <div class="md:w-1/2 p-4 bg-white flex flex-col">
+                
+                <div class="relative w-full h-[350px] md:h-[500px] bg-gray-100 rounded-xl overflow-hidden mb-4 border border-gray-200 group">
+                    <img id="mainImage" 
+                         src="uploads/<?= $product['image'] ?>" 
+                         alt="<?= $product['title'] ?>" 
+                         class="absolute inset-0 w-full h-full object-cover object-center transition-transform duration-500 hover:scale-105 cursor-zoom-in">
+                </div>
+
+                <?php if(!empty($product['image1']) || !empty($product['image2'])): ?>
+                <div class="flex gap-3 overflow-x-auto pb-2 scrollbar-hide shrink-0">
+                    
+                    <button type="button" onclick="changeImage('uploads/<?= $product['image'] ?>')" class="w-20 h-20 flex-shrink-0 rounded-lg overflow-hidden border-2 border-transparent hover:border-primary focus:border-primary transition p-0.5 bg-gray-50">
+                        <img src="uploads/<?= $product['image'] ?>" class="w-full h-full object-cover rounded-md">
+                    </button>
+
+                    <?php if(!empty($product['image1'])): ?>
+                    <button type="button" onclick="changeImage('uploads/<?= $product['image1'] ?>')" class="w-20 h-20 flex-shrink-0 rounded-lg overflow-hidden border-2 border-transparent hover:border-primary focus:border-primary transition p-0.5 bg-gray-50">
+                        <img src="uploads/<?= $product['image1'] ?>" class="w-full h-full object-cover rounded-md">
+                    </button>
+                    <?php endif; ?>
+
+                    <?php if(!empty($product['image2'])): ?>
+                    <button type="button" onclick="changeImage('uploads/<?= $product['image2'] ?>')" class="w-20 h-20 flex-shrink-0 rounded-lg overflow-hidden border-2 border-transparent hover:border-primary focus:border-primary transition p-0.5 bg-gray-50">
+                        <img src="uploads/<?= $product['image2'] ?>" class="w-full h-full object-cover rounded-md">
+                    </button>
+                    <?php endif; ?>
+
+                </div>
+                <?php endif; ?>
             </div>
 
             <div class="p-8 md:w-1/2 flex flex-col justify-between">
@@ -62,29 +90,29 @@ require_once 'layout/header.php';
                             <h1 class="text-3xl font-extrabold text-gray-800 mb-2 leading-tight"><?= $product['title'] ?></h1>
                             <p class="text-primary text-3xl font-bold">Rp <?= number_format($product['price'], 0, ',', '.') ?></p>
                             
-                            <div class="mt-3">
+                            <div class="mt-3 flex flex-wrap gap-2">
                                 <span class="inline-flex items-center gap-1.5 bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-sm font-medium border border-gray-200">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
                                     </svg>
                                     <?= isset($product['category']) && isset($categories[$product['category']]) ? $categories[$product['category']] : 'Umum' ?>
                                 </span>
+                                
+                                <span class="bg-teal-50 text-teal-700 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border border-teal-200 shadow-sm flex items-center">
+                                    <?= $product['school_name'] ?>
+                                </span>
                             </div>
-
                         </div>
-                        <span class="bg-teal-50 text-teal-700 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border border-teal-200 shadow-sm">
-                            <?= $product['school_name'] ?>
-                        </span>
                     </div>
 
                     <div class="h-px bg-gray-100 my-6"></div>
 
-                    <div class="prose prose-sm text-gray-600 mb-8">
+                    <div class="prose prose-sm text-gray-600 mb-8 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
                         <p class="leading-relaxed whitespace-pre-line"><?= $product['description'] ?></p>
                     </div>
 
                     <div class="flex items-center gap-4 p-4 bg-gray-50 rounded-lg border border-gray-100">
-                        <div class="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xl">
+                        <div class="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xl shrink-0">
                             <?= substr($product['student_name'], 0, 1) ?>
                         </div>
                         <div>
@@ -153,7 +181,26 @@ require_once 'layout/header.php';
 </div>
 
 <script>
-// Fungsi Toggle Modal
+function changeImage(src) {
+    const mainImg = document.getElementById('mainImage');
+    
+    // Fade out
+    mainImg.style.opacity = 0.5;
+    
+    setTimeout(() => {
+        // Ganti source
+        mainImg.src = src;
+        
+        // Listener saat gambar baru selesai di-load (mencegah blink)
+        mainImg.onload = function() {
+            mainImg.style.opacity = 1;
+        };
+        
+        // Fallback jika cache sangat cepat
+        setTimeout(() => { mainImg.style.opacity = 1; }, 50);
+    }, 150);
+}
+
 function toggleModal() {
     const modal = document.getElementById('reportModal');
     if (modal.classList.contains('hidden')) {
@@ -165,13 +212,11 @@ function toggleModal() {
     }
 }
 
-// Logic Auto-Open Modal jika ada parameter trigger_report=true dari halaman index
 document.addEventListener('DOMContentLoaded', function() {
+    // Cek jika ada trigger dari parameter URL untuk auto-open report
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('trigger_report') === 'true') {
         toggleModal();
-        
-        // Membersihkan URL agar jika direfresh modal tidak muncul lagi
         const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + "?id=" + urlParams.get('id');
         window.history.replaceState({path: newUrl}, '', newUrl);
     }
@@ -185,6 +230,24 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     .animate-fade-in {
         animation: fade-in 0.2s ease-out forwards;
+    }
+    .scrollbar-hide::-webkit-scrollbar {
+        display: none;
+    }
+    .scrollbar-hide {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+    }
+    /* Scrollbar minimalis untuk deskripsi */
+    .custom-scrollbar::-webkit-scrollbar {
+        width: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+        background-color: #cbd5e1;
+        border-radius: 10px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+        background: #f1f5f9;
     }
 </style>
 <?php require_once 'layout/footer.php'; ?>

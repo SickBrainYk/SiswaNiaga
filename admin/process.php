@@ -42,24 +42,35 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 // --- LOGIC GET (Link Action) ---
 elseif (isset($_GET['action'])) {
     
-    // 1. TAKEDOWN / HAPUS PRODUK
+    // 1. TAKEDOWN / HAPUS PRODUK (FIXED: HAPUS 3 FILE IMAGE)
     if ($_GET['action'] == 'delete' && isset($_GET['id'])) {
         $id = $_GET['id'];
         
-        // Ambil info gambar dulu sebelum hapus DB
-        $stmt = $pdo->prepare("SELECT image FROM products WHERE id = ? AND school_id = ?");
+        // Ambil info KETIGA gambar dulu sebelum hapus DB
+        $stmt = $pdo->prepare("SELECT image, image1, image2 FROM products WHERE id = ? AND school_id = ?");
         $stmt->execute([$id, $school_id]);
-        $data = $stmt->fetch();
+        $data = $stmt->fetch(PDO::FETCH_ASSOC);
         
         if ($data) {
-            // Hapus file gambar fisik
-            $filePath = '../uploads/' . $data['image'];
-            if (file_exists($filePath)) {
-                unlink($filePath);
+            // Daftar kolom yang ingin dicek
+            $imageFields = ['image', 'image1', 'image2'];
+
+            // Loop untuk menghapus setiap file gambar yang ada
+            foreach ($imageFields as $field) {
+                $filename = $data[$field];
+                
+                // Jika nama file tidak kosong
+                if (!empty($filename)) {
+                    $filePath = '../uploads/' . $filename;
+                    
+                    // Jika file fisik ada di server, hapus
+                    if (file_exists($filePath)) {
+                        unlink($filePath);
+                    }
+                }
             }
             
-            // Hapus record database (Cascade delete akan menghapus laporan terkait otomatis jika disetting foreign key)
-            // Jika foreign key reports belum cascade, laporan akan jadi yatim piatu (tidak masalah untuk simple app)
+            // Setelah file terhapus, baru hapus record database
             $del = $pdo->prepare("DELETE FROM products WHERE id = ?");
             $del->execute([$id]);
         }
@@ -70,8 +81,6 @@ elseif (isset($_GET['action'])) {
         $rep_id = $_GET['report_id'];
         
         // Hapus hanya record di tabel reports
-        // Perlu join check biar admin sekolah A gak hapus report sekolah B? 
-        // Idealnya iya, tapi cek report_id saja cukup aman untuk skenario ini.
         $stmt = $pdo->prepare("DELETE FROM reports WHERE id = ?");
         $stmt->execute([$rep_id]);
     }

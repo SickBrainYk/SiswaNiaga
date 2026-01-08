@@ -55,15 +55,39 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_profile'])) {
     }
 }
 
-// --- LOGIC: HAPUS SISWA ---
+// --- LOGIC: HAPUS SISWA (FIXED: HAPUS 3 FILE IMAGE) ---
 if (isset($_GET['delete_student'])) {
     $student_id = (int)$_GET['delete_student'];
-    // Hapus Produk Siswa Terlebih Dahulu (Optional: tergantung kebijakan database foreign key)
+    
+    // 1. Ambil SEMUA kolom gambar dari semua produk milik siswa ini
+    $stmt_img = $pdo->prepare("SELECT image, image1, image2 FROM products WHERE user_id = ?");
+    $stmt_img->execute([$student_id]);
+    $products_data = $stmt_img->fetchAll(PDO::FETCH_ASSOC);
+
+    // 2. Loop setiap produk, dan loop setiap kolom gambar untuk dihapus
+    $imageFields = ['image', 'image1', 'image2'];
+
+    foreach ($products_data as $prod) {
+        foreach ($imageFields as $field) {
+            $filename = $prod[$field];
+            // Cek apakah database berisi nama file
+            if (!empty($filename)) {
+                $filePath = '../uploads/' . $filename;
+                // Cek apakah file fisik ada
+                if (file_exists($filePath)) {
+                    unlink($filePath); // Hapus file fisik
+                }
+            }
+        }
+    }
+
+    // 3. Hapus Data di Database
+    // Hapus Produk Siswa
     $pdo->prepare("DELETE FROM products WHERE user_id = ?")->execute([$student_id]);
-    // Hapus User
+    // Hapus User Siswa
     $pdo->prepare("DELETE FROM users WHERE id = ? AND school_id = ? AND role = 'student'")->execute([$student_id, $school_id]);
     
-    echo "<script>alert('Siswa berhasil dihapus!'); window.location='dashboard.php?tab=students';</script>";
+    echo "<script>alert('Siswa dan seluruh file karyanya (image, image1, image2) berhasil dihapus!'); window.location='dashboard.php?tab=students';</script>";
     exit;
 }
 
@@ -95,7 +119,7 @@ $stmt_students = $pdo->prepare("SELECT * FROM users WHERE school_id = ? AND role
 $stmt_students->execute([$school_id]);
 $students = $stmt_students->fetchAll();
 
-// Penentuan Tab Aktif (Default: pending)
+// Penentuan Tab Aktif
 $tab = isset($_GET['tab']) ? $_GET['tab'] : (isset($_POST['update_profile']) ? 'profile' : 'pending');
 
 require_once '../layout/header.php';
@@ -140,7 +164,7 @@ require_once '../layout/header.php';
         
         <div class="md:hidden mb-6 flex justify-between items-center">
             <h1 class="text-xl font-bold text-gray-800">Admin Dashboard</h1>
-            </div>
+        </div>
 
         <div id="content-pending" class="content-section <?= $tab == 'pending' ? '' : 'hidden' ?>">
             <h2 class="text-2xl font-bold text-gray-800 mb-6">Moderasi Karya (<?= count($pending_items) ?>)</h2>
@@ -251,7 +275,7 @@ require_once '../layout/header.php';
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><?= $s['email'] ?></td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><?= $s['phone'] ?></td>
                             <td class="px-6 py-4 whitespace-nowrap text-right text-sm">
-                                <a href="?delete_student=<?= $s['id'] ?>" onclick="return confirm('PERINGATAN: Menghapus siswa ini akan menghapus SEMUA produk mereka secara permanen. Lanjutkan?')" class="text-red-600 hover:text-red-900 bg-red-50 px-3 py-1 rounded-md font-medium">
+                                <a href="?delete_student=<?= $s['id'] ?>" onclick="return confirm('PERINGATAN: Menghapus siswa ini akan menghapus SEMUA produk mereka secara permanen dan file gambar akan dihapus dari server. Lanjutkan?')" class="text-red-600 hover:text-red-900 bg-red-50 px-3 py-1 rounded-md font-medium">
                                     Hapus Akun
                                 </a>
                             </td>
@@ -299,19 +323,15 @@ require_once '../layout/header.php';
 
 <script>
 function switchTab(tabName) {
-    // Sembunyikan semua konten
     document.querySelectorAll('.content-section').forEach(el => el.classList.add('hidden'));
     
-    // Reset style sidebar links
     document.querySelectorAll('.sidebar-link').forEach(link => {
         link.classList.remove('bg-primary', 'text-white', 'shadow-md');
         link.classList.add('text-gray-600', 'hover:bg-gray-50');
     });
 
-    // Tampilkan konten terpilih
     document.getElementById('content-' + tabName).classList.remove('hidden');
     
-    // Highlight link terpilih
     const activeLink = document.getElementById('link-' + tabName);
     activeLink.classList.remove('text-gray-600', 'hover:bg-gray-50');
     activeLink.classList.add('bg-primary', 'text-white', 'shadow-md');
