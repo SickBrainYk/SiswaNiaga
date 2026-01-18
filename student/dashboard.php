@@ -122,7 +122,9 @@ foreach ($products as $p) {
     <?php else: ?>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             <?php foreach($products as $p): ?>
-                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-lg transition-all duration-300 group flex flex-col h-full">
+                <div class="item-product bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-lg transition-all duration-300 group flex flex-col h-full"
+                     data-id="<?= $p['id'] ?>" 
+                     data-status="<?= $p['status'] ?>">
                     
                     <div class="relative w-full h-48 bg-gray-100 overflow-hidden">
                         <img src="../uploads/<?= htmlspecialchars($p['image']) ?>" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
@@ -181,4 +183,62 @@ foreach ($products as $p) {
     <?php endif; ?>
 
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // 1. Ambil semua elemen produk di dashboard
+    const productElements = document.querySelectorAll('.item-product');
+    
+    // Jika tidak ada produk, tidak perlu polling
+    if (productElements.length === 0) return;
+
+    const products = [];
+    productElements.forEach(el => {
+        products.push({
+            id: el.getAttribute('data-id'),
+            currentStatus: el.getAttribute('data-status')
+        });
+    });
+
+    // 2. Fungsi Cek Status
+    function checkStatus() {
+        // Hanya ambil ID-nya saja untuk dikirim ke server
+        const productIds = products.map(p => p.id);
+
+        fetch('check_status.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ products: productIds })
+        })
+        .then(response => response.json())
+        .then(data => {
+            let needsReload = false;
+
+            // Loop data terbaru dari server
+            data.forEach(serverProduct => {
+                // Cari produk lokal yang cocok
+                const localProduct = products.find(p => p.id == serverProduct.id);
+                
+                if (localProduct) {
+                    // Jika status di server beda dengan status di layar (browser)
+                    // Misal: Layar 'pending', Server 'active' -> Reload!
+                    if (serverProduct.status !== localProduct.currentStatus) {
+                        needsReload = true;
+                    }
+                }
+            });
+
+            if (needsReload) {
+                console.log("Perubahan status terdeteksi! Reloading...");
+                window.location.reload();
+            }
+        })
+        .catch(err => console.error("Gagal cek status:", err));
+    }
+
+    // 3. Jalankan pengecekan setiap 5 detik
+    setInterval(checkStatus, 5000);
+});
+</script>
+
 <?php require_once '../layout/footer.php'; ?>

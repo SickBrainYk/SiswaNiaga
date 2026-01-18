@@ -13,7 +13,7 @@ $val_phone = '';
 // --- 1. LOGIC HANDLER (POST) ---
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     
-    // A. Logic Tambah Sekolah
+    // A. Tambah Sekolah
     if (isset($_POST['add_school'])) {
         $name = sanitize($_POST['school_name']);
         if($name) {
@@ -22,7 +22,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
     }
     
-    // B. Logic Tambah Admin Sekolah
+    // B. Tambah Admin
     if (isset($_POST['add_admin'])) {
         $school_id = $_POST['school_id'];
         $name = sanitize($_POST['name']);
@@ -37,7 +37,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
         $phone = preg_replace('/[^0-9]/', '', $phone_input);
         $error_msg = null;
-
         if (substr($phone, 0, 1) == '0') $phone = '62' . substr($phone, 1);
         elseif (substr($phone, 0, 2) != '62') $error_msg = "Format nomor HP salah. Gunakan awalan 08 atau 62.";
         if (!$error_msg && strlen($phone) < 10) $error_msg = "Nomor HP terlalu pendek.";
@@ -53,75 +52,51 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 $hashed_password = password_hash($password, PASSWORD_BCRYPT);
                 $sql = "INSERT INTO users (school_id, name, email, password, phone, role) VALUES (?, ?, ?, ?, ?, 'admin')";
                 $pdo->prepare($sql)->execute([$school_id, $name, $email, $hashed_password, $phone]);
-                
                 $val_school_id = $val_name = $val_email = $val_phone = ''; 
                 echo "<script>alert('Admin Sekolah berhasil dibuat!'); window.location='?page=admins';</script>";
             }
         }
     }
 
-    // C. Logic Hapus (Sekolah / User & Bersihkan Gambar)
+    // C. Hapus Data
     if (isset($_POST['delete_type'])) {
         $id = $_POST['delete_id'];
-        
         if ($_POST['delete_type'] == 'school') {
-            // Hapus Sekolah (Data user & produk akan hilang via Cascade di DB, tapi file gambar perlu dibersihkan manual jika ingin perfect, namun biasanya ini jarang dilakukan sekaligus. Fokus ke User delete)
             $pdo->prepare("DELETE FROM schools WHERE id = ?")->execute([$id]);
-        
         } elseif ($_POST['delete_type'] == 'user') {
-            // [PERBAIKAN UTAMA] Hapus Gambar Fisik Sebelum Hapus User
-            
-            // 1. Ambil semua produk milik user ini
             $stmtProd = $pdo->prepare("SELECT image, image1, image2 FROM products WHERE user_id = ?");
             $stmtProd->execute([$id]);
             $userProducts = $stmtProd->fetchAll();
-
-            // 2. Loop dan hapus file
             foreach ($userProducts as $p) {
                 $filesToDelete = [$p['image'], $p['image1'], $p['image2']];
                 foreach ($filesToDelete as $file) {
-                    if (!empty($file) && file_exists('../uploads/' . $file)) {
-                        unlink('../uploads/' . $file); // Hapus dari folder
-                    }
+                    if (!empty($file) && file_exists('../uploads/' . $file)) unlink('../uploads/' . $file); 
                 }
             }
-
-            // 3. Hapus produk dari DB (Opsional jika DB tidak Cascade, tapi aman dilakukan)
             $pdo->prepare("DELETE FROM products WHERE user_id = ?")->execute([$id]);
-
-            // 4. Hapus User
             $pdo->prepare("DELETE FROM users WHERE id = ?")->execute([$id]);
         }
-        
         $redirect_page = isset($_GET['page']) ? $_GET['page'] : 'schools';
         echo "<script>window.location='?page=$redirect_page';</script>";
     }
 
-    // D. Logic Takedown Produk (Hapus Row & 3 Gambar)
+    // D. Takedown Produk
     if (isset($_POST['takedown_product'])) {
         $id = $_POST['product_id'];
-        
-        // 1. Ambil nama file gambar
         $stmt = $pdo->prepare("SELECT image, image1, image2 FROM products WHERE id = ?");
         $stmt->execute([$id]);
         $img = $stmt->fetch();
-        
-        // 2. Hapus file fisik jika ada
         if($img) {
             $filesToDelete = [$img['image'], $img['image1'], $img['image2']];
             foreach ($filesToDelete as $file) {
-                if (!empty($file) && file_exists('../uploads/' . $file)) {
-                    unlink('../uploads/' . $file);
-                }
+                if (!empty($file) && file_exists('../uploads/' . $file)) unlink('../uploads/' . $file);
             }
         }
-
-        // 3. Hapus dari Database
         $pdo->prepare("DELETE FROM products WHERE id = ?")->execute([$id]);
         echo "<script>alert('Produk berhasil di-takedown!'); window.location='?page=products';</script>";
     }
 
-    // E. Logic Hapus Laporan
+    // E. Hapus Laporan
     if (isset($_POST['dismiss_report'])) {
         $id = $_POST['report_id'];
         $pdo->prepare("DELETE FROM reports WHERE id = ?")->execute([$id]);
@@ -132,7 +107,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 // --- 2. NAVIGASI HALAMAN ---
 $page = isset($_GET['page']) ? $_GET['page'] : 'overview';
 
-// --- 3. DATA OVERVIEW ---
+// --- 3. DATA OVERVIEW (STATISTIK) ---
 if ($page == 'overview') {
     $stat_schools = $pdo->query("SELECT COUNT(*) FROM schools")->fetchColumn();
     $stat_admins = $pdo->query("SELECT COUNT(*) FROM users WHERE role='admin'")->fetchColumn();
@@ -141,41 +116,44 @@ if ($page == 'overview') {
     $stat_products = $pdo->query("SELECT COUNT(*) FROM products")->fetchColumn();
     $stat_reports = $pdo->query("SELECT COUNT(*) FROM reports")->fetchColumn();
     
-    $cat_data = $pdo->query("SELECT category, COUNT(*) as total FROM products GROUP BY category")->fetchAll(PDO::FETCH_KEY_PAIR);
+    // Data untuk Grafik Batang
+    $chart_labels = ['Sekolah', 'Guru Admin', 'Siswa', 'Akun Publik', 'Karya', 'Laporan'];
+    $chart_data = [$stat_schools, $stat_admins, $stat_students, $stat_public, $stat_products, $stat_reports];
+    
     $recent_schools = $pdo->query("SELECT * FROM schools ORDER BY id DESC LIMIT 5")->fetchAll();
 }
 ?>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-<div class="flex min-h-[calc(100vh-64px)] bg-gray-100">
+<div class="flex min-h-[calc(100vh-64px)] bg-gray-50">
     
-    <aside class="w-64 bg-white shadow-md hidden md:block border-r border-gray-200 flex-shrink-0">
+    <aside class="w-64 bg-white shadow-xl hidden md:block border-r border-gray-100 flex-shrink-0 z-10">
         <div class="p-6">
-            <h2 class="text-xl font-bold text-primary">Super Admin</h2>
-            <p class="text-xs text-gray-500">Control Panel Pusat</p>
+            <h2 class="text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-teal-500 to-emerald-600">Super Admin</h2>
+            <p class="text-xs text-gray-400 mt-1 font-medium tracking-wide">CONTROL PANEL PUSAT</p>
         </div>
-        <nav class="mt-2 space-y-1">
-            <a href="?page=overview" class="block px-6 py-3 hover:bg-gray-50 <?= $page=='overview' ? 'bg-teal-50 text-primary font-bold border-r-4 border-primary' : 'text-gray-600' ?>">
-                📊 Ringkasan Profil
+        <nav class="mt-2 space-y-1 px-3">
+            <a href="?page=overview" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all <?= $page=='overview' ? 'bg-teal-50 text-teal-700 font-bold shadow-sm' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' ?>">
+                <span>📊</span> Ringkasan
             </a>
-            <a href="?page=schools" class="block px-6 py-3 hover:bg-gray-50 <?= $page=='schools' ? 'bg-teal-50 text-primary font-bold border-r-4 border-primary' : 'text-gray-600' ?>">
-                🏫 Data Sekolah
+            <a href="?page=schools" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all <?= $page=='schools' ? 'bg-teal-50 text-teal-700 font-bold shadow-sm' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' ?>">
+                <span>🏫</span> Data Sekolah
             </a>
-            <a href="?page=admins" class="block px-6 py-3 hover:bg-gray-50 <?= $page=='admins' ? 'bg-teal-50 text-primary font-bold border-r-4 border-primary' : 'text-gray-600' ?>">
-                👨‍🏫 Admin Sekolah
+            <a href="?page=admins" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all <?= $page=='admins' ? 'bg-teal-50 text-teal-700 font-bold shadow-sm' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' ?>">
+                <span>👨‍🏫</span> Admin Sekolah
             </a>
-            <a href="?page=students" class="block px-6 py-3 hover:bg-gray-50 <?= $page=='students' ? 'bg-teal-50 text-primary font-bold border-r-4 border-primary' : 'text-gray-600' ?>">
-                🎓 Data Siswa
+            <a href="?page=students" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all <?= $page=='students' ? 'bg-teal-50 text-teal-700 font-bold shadow-sm' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' ?>">
+                <span>🎓</span> Data Siswa
             </a>
-            <a href="?page=public_users" class="block px-6 py-3 hover:bg-gray-50 <?= $page=='public_users' ? 'bg-teal-50 text-primary font-bold border-r-4 border-primary' : 'text-gray-600' ?>">
-                👤 Akun Publik
+            <a href="?page=public_users" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all <?= $page=='public_users' ? 'bg-teal-50 text-teal-700 font-bold shadow-sm' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' ?>">
+                <span>👤</span> Akun Publik
             </a>
-            <a href="?page=products" class="block px-6 py-3 hover:bg-gray-50 <?= $page=='products' ? 'bg-teal-50 text-primary font-bold border-r-4 border-primary' : 'text-gray-600' ?>">
-                🛍️ Semua Karya
+            <a href="?page=products" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all <?= $page=='products' ? 'bg-teal-50 text-teal-700 font-bold shadow-sm' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' ?>">
+                <span>🛍️</span> Semua Karya
             </a>
-            <a href="?page=reports" class="block px-6 py-3 hover:bg-gray-50 <?= $page=='reports' ? 'bg-teal-50 text-primary font-bold border-r-4 border-primary' : 'text-gray-600' ?>">
-                🚩 Laporan
+            <a href="?page=reports" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all <?= $page=='reports' ? 'bg-teal-50 text-teal-700 font-bold shadow-sm' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900' ?>">
+                <span>🚩</span> Laporan
             </a>
         </nav>
     </aside>
@@ -183,59 +161,125 @@ if ($page == 'overview') {
     <main class="flex-1 p-8 overflow-y-auto h-[calc(100vh-64px)]">
         
         <?php if($page == 'overview'): ?>
-            <h1 class="text-2xl font-bold mb-6 text-gray-800">Ringkasan Sistem</h1>
+            <h1 class="text-3xl font-bold text-gray-800 tracking-tight mb-8">Ringkasan Sistem</h1>
             
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-8">
-                <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col">
-                    <span class="text-xs text-gray-500 uppercase font-bold">Total Sekolah</span>
-                    <span class="text-3xl font-bold text-primary mt-1"><?= number_format($stat_schools) ?></span>
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col hover:shadow-md transition">
+                    <span class="text-xs text-gray-500 uppercase font-bold tracking-wide">Total Sekolah</span>
+                    <span class="text-4xl font-extrabold text-teal-600 mt-2"><?= number_format($stat_schools) ?></span>
                 </div>
-                <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col">
-                    <span class="text-xs text-gray-500 uppercase font-bold">Total Guru Admin</span>
-                    <span class="text-3xl font-bold text-blue-600 mt-1"><?= number_format($stat_admins) ?></span>
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col hover:shadow-md transition">
+                    <span class="text-xs text-gray-500 uppercase font-bold tracking-wide">Total Guru Admin</span>
+                    <span class="text-4xl font-extrabold text-blue-600 mt-2"><?= number_format($stat_admins) ?></span>
                 </div>
-                <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col">
-                    <span class="text-xs text-gray-500 uppercase font-bold">Total Siswa</span>
-                    <span class="text-3xl font-bold text-green-600 mt-1"><?= number_format($stat_students) ?></span>
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col hover:shadow-md transition">
+                    <span class="text-xs text-gray-500 uppercase font-bold tracking-wide">Total Siswa</span>
+                    <span class="text-4xl font-extrabold text-green-600 mt-2"><?= number_format($stat_students) ?></span>
                 </div>
-                <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col">
-                    <span class="text-xs text-gray-500 uppercase font-bold">Akun Publik</span>
-                    <span class="text-3xl font-bold text-gray-600 mt-1"><?= number_format($stat_public) ?></span>
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col hover:shadow-md transition">
+                    <span class="text-xs text-gray-500 uppercase font-bold tracking-wide">Akun Publik</span>
+                    <span class="text-4xl font-extrabold text-gray-700 mt-2"><?= number_format($stat_public) ?></span>
                 </div>
-                <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col">
-                    <span class="text-xs text-gray-500 uppercase font-bold">Karya Diupload</span>
-                    <span class="text-3xl font-bold text-purple-600 mt-1"><?= number_format($stat_products) ?></span>
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col hover:shadow-md transition">
+                    <span class="text-xs text-gray-500 uppercase font-bold tracking-wide">Karya Diupload</span>
+                    <span class="text-4xl font-extrabold text-purple-600 mt-2"><?= number_format($stat_products) ?></span>
                 </div>
-                <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col">
-                    <span class="text-xs text-gray-500 uppercase font-bold">Laporan Masuk</span>
-                    <span class="text-3xl font-bold text-red-600 mt-1"><?= number_format($stat_reports) ?></span>
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col hover:shadow-md transition">
+                    <span class="text-xs text-gray-500 uppercase font-bold tracking-wide">Laporan Masuk</span>
+                    <span class="text-4xl font-extrabold text-red-600 mt-2"><?= number_format($stat_reports) ?></span>
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 lg:col-span-2">
-                    <h3 class="font-bold text-gray-700 mb-4">Distribusi Kategori Karya</h3>
-                    <div class="h-64"><canvas id="catChart"></canvas></div>
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                
+                <div class="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 lg:col-span-2">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="font-bold text-xl text-gray-800">Analisis Data Sistem</h3>
+                    </div>
+                    
+                    <div class="relative w-full h-[350px]">
+                        <canvas id="barChart"></canvas>
+                    </div>
                 </div>
-                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                    <h3 class="font-bold text-gray-700 mb-4">Sekolah Terbaru</h3>
+
+                <div class="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="font-bold text-gray-800">Sekolah Baru</h3>
+                        <a href="?page=schools" class="text-xs font-bold text-teal-600 hover:underline">Lihat Semua</a>
+                    </div>
                     <div class="space-y-4">
                         <?php foreach($recent_schools as $rs): ?>
-                        <div class="flex items-center gap-3 pb-3 border-b border-gray-50 last:border-0 last:pb-0">
-                            <div class="w-8 h-8 rounded-full bg-teal-100 flex items-center justify-center text-teal-600 text-xs font-bold"><?= substr($rs['name'], 0, 1) ?></div>
-                            <div><p class="text-sm font-bold text-gray-800"><?= $rs['name'] ?></p><p class="text-[10px] text-gray-400">ID: #<?= $rs['id'] ?></p></div>
+                        <div class="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition border border-transparent hover:border-gray-100">
+                            <div class="w-10 h-10 rounded-full bg-teal-50 flex items-center justify-center text-teal-600 font-bold shadow-sm">
+                                <?= substr($rs['name'], 0, 1) ?>
+                            </div>
+                            <div class="overflow-hidden">
+                                <p class="text-sm font-bold text-gray-800 truncate"><?= $rs['name'] ?></p>
+                                <p class="text-[10px] text-gray-400">ID: #<?= str_pad($rs['id'], 3, '0', STR_PAD_LEFT) ?></p>
+                            </div>
                         </div>
                         <?php endforeach; ?>
-                        <?php if(count($recent_schools) == 0): ?><p class="text-sm text-gray-400">Belum ada sekolah terdaftar.</p><?php endif; ?>
+                        <?php if(count($recent_schools) == 0): ?>
+                            <p class="text-sm text-gray-400 text-center py-4">Belum ada data sekolah.</p>
+                        <?php endif; ?>
                     </div>
-                    <a href="?page=schools" class="block mt-6 text-center text-sm text-primary font-bold hover:underline">Kelola Semua Sekolah →</a>
                 </div>
             </div>
+
             <script>
-                const ctx = document.getElementById('catChart').getContext('2d');
-                const labels = <?= json_encode(array_keys($cat_data)) ?>;
-                const data = <?= json_encode(array_values($cat_data)) ?>;
-                new Chart(ctx, { type: 'bar', data: { labels: labels.length ? labels : ['Belum ada data'], datasets: [{ label: 'Jumlah Karya', data: data.length ? data : [0], backgroundColor: '#0f766e', borderRadius: 5 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } } });
+                const ctx = document.getElementById('barChart').getContext('2d');
+                new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: <?= json_encode($chart_labels) ?>,
+                        datasets: [{
+                            label: 'Jumlah Data',
+                            data: <?= json_encode($chart_data) ?>,
+                            backgroundColor: [
+                                '#0d9488', // Teal
+                                '#2563eb', // Blue
+                                '#16a34a', // Green
+                                '#374151', // Gray
+                                '#9333ea', // Purple
+                                '#dc2626'  // Red
+                            ],
+                            borderRadius: 8,
+                            barThickness: 40
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                backgroundColor: 'rgba(17, 24, 39, 0.9)',
+                                padding: 12,
+                                cornerRadius: 8
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: {
+                                    stepSize: 1, // Kunci: Jarak antar angka minimal 1 (tidak ada koma)
+                                    precision: 0, // Kunci: Tidak menampilkan desimal
+                                    font: { family: "'Inter', sans-serif" }
+                                },
+                                grid: {
+                                    color: '#f3f4f6',
+                                    borderDash: [5, 5]
+                                }
+                            },
+                            x: {
+                                grid: { display: false },
+                                ticks: { 
+                                    font: { family: "'Inter', sans-serif", weight: 'bold' } 
+                                }
+                            }
+                        }
+                    }
+                });
             </script>
 
         <?php elseif($page == 'schools'): ?>

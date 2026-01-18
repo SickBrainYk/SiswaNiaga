@@ -30,13 +30,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $price = $_POST['price'];
     
     // Siapkan variabel gambar (Ambil dari DB jika ada)
-    // Sesuai struktur DB: image, image1, image2
     $imgUtama  = $product['image'] ?? '';
     $imgKedua  = $product['image1'] ?? ''; 
     $imgKetiga = $product['image2'] ?? '';
 
     // --- VALIDASI WAJIB 3 GAMBAR ---
-    // Logika: Jika (Tidak ada file baru yg diupload) DAN (Data lama kosong) => Error
     if (empty($_FILES['image']['name']) && empty($imgUtama)) {
         $error = "Foto Utama wajib diisi!";
     }
@@ -49,21 +47,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
     // --- PROSES UPLOAD ---
     if (!isset($error)) {
-        // Fungsi Helper untuk Upload & Hapus file lama
         function processUpload($inputName, $currentImgName) {
             if (!empty($_FILES[$inputName]['name'])) {
                 $upload = uploadImage($_FILES[$inputName]); // Fungsi dari config/functions.php
                 if ($upload['status']) {
-                    // Hapus gambar lama jika ada
                     if ($currentImgName && file_exists("../uploads/" . $currentImgName)) {
                         unlink("../uploads/" . $currentImgName);
                     }
-                    return $upload['fileName']; // Return nama file baru
+                    return $upload['fileName']; 
                 } else {
-                    return ['error' => $upload['msg']]; // Return array error
+                    return ['error' => $upload['msg']]; 
                 }
             }
-            return $currentImgName; // Return nama lama jika tidak ada upload baru
+            return $currentImgName; 
         }
 
         // 1. Proses Image Utama
@@ -100,7 +96,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $stmt->execute([$_SESSION['user_id'], $_SESSION['school_id'], $category, $title, $desc, $price, $imgUtama, $imgKedua, $imgKetiga]);
         }
         
-        // Ambil Data Admin untuk Modal
+        // Ambil Data Admin untuk Modal Notifikasi
         $school_id = $_SESSION['school_id'];
         $stmtAdmin = $pdo->prepare("SELECT name, phone FROM users WHERE school_id = ? AND role = 'admin' LIMIT 1");
         $stmtAdmin->execute([$school_id]);
@@ -158,49 +154,46 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             <label class="block text-sm font-bold text-gray-800 mb-3">Foto Produk (Wajib 3 Foto)</label>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 
-                <div class="border-2 border-dashed border-gray-300 p-3 rounded-xl hover:border-primary transition bg-gray-50 text-center">
+                <div class="border-2 border-dashed border-gray-300 p-3 rounded-xl hover:border-primary transition bg-gray-50 text-center relative">
                     <p class="text-xs font-bold text-gray-600 mb-2 bg-white inline-block px-2 py-1 rounded shadow-sm">Foto Utama</p>
                     
-                    <?php if(!empty($product['image'])): ?>
-                        <div class="relative w-full h-32 mb-2 group">
-                            <img src="../uploads/<?= $product['image'] ?>" class="w-full h-full object-cover rounded-lg">
-                            <div class="absolute inset-0 bg-black/50 hidden group-hover:flex items-center justify-center text-white text-xs rounded-lg">Foto Lama</div>
-                        </div>
-                    <?php else: ?>
-                        <div class="w-full h-32 mb-2 bg-gray-200 rounded-lg flex items-center justify-center text-gray-400 text-xs">Belum ada foto</div>
-                    <?php endif; ?>
+                    <div class="w-full h-32 mb-2 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden">
+                        <img id="prev-img" src="<?= !empty($product['image']) ? '../uploads/'.$product['image'] : '' ?>" 
+                             class="w-full h-full object-cover <?= !empty($product['image']) ? '' : 'hidden' ?>">
+                        <span id="ph-img" class="text-gray-400 text-xs <?= !empty($product['image']) ? 'hidden' : '' ?>">Preview Foto</span>
+                    </div>
 
-                    <input type="file" name="image" class="w-full text-xs text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-primary file:text-white hover:file:bg-teal-700" <?= (!empty($product['image'])) ? '' : 'required' ?>>
+                    <input type="file" name="image" onchange="previewFile(this, 'prev-img', 'ph-img')" 
+                           class="w-full text-xs text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-primary file:text-white hover:file:bg-teal-700" 
+                           <?= (!empty($product['image'])) ? '' : 'required' ?>>
                 </div>
 
-                <div class="border-2 border-dashed border-gray-300 p-3 rounded-xl hover:border-primary transition bg-gray-50 text-center">
+                <div class="border-2 border-dashed border-gray-300 p-3 rounded-xl hover:border-primary transition bg-gray-50 text-center relative">
                     <p class="text-xs font-bold text-gray-600 mb-2 bg-white inline-block px-2 py-1 rounded shadow-sm">Foto Samping</p>
                     
-                    <?php if(!empty($product['image1'])): ?>
-                        <div class="relative w-full h-32 mb-2 group">
-                            <img src="../uploads/<?= $product['image1'] ?>" class="w-full h-full object-cover rounded-lg">
-                            <div class="absolute inset-0 bg-black/50 hidden group-hover:flex items-center justify-center text-white text-xs rounded-lg">Foto Lama</div>
-                        </div>
-                    <?php else: ?>
-                        <div class="w-full h-32 mb-2 bg-gray-200 rounded-lg flex items-center justify-center text-gray-400 text-xs">Belum ada foto</div>
-                    <?php endif; ?>
+                    <div class="w-full h-32 mb-2 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden">
+                        <img id="prev-img1" src="<?= !empty($product['image1']) ? '../uploads/'.$product['image1'] : '' ?>" 
+                             class="w-full h-full object-cover <?= !empty($product['image1']) ? '' : 'hidden' ?>">
+                        <span id="ph-img1" class="text-gray-400 text-xs <?= !empty($product['image1']) ? 'hidden' : '' ?>">Preview Foto</span>
+                    </div>
 
-                    <input type="file" name="image1" class="w-full text-xs text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-primary file:text-white hover:file:bg-teal-700" <?= (!empty($product['image1'])) ? '' : 'required' ?>>
+                    <input type="file" name="image1" onchange="previewFile(this, 'prev-img1', 'ph-img1')" 
+                           class="w-full text-xs text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-primary file:text-white hover:file:bg-teal-700" 
+                           <?= (!empty($product['image1'])) ? '' : 'required' ?>>
                 </div>
 
-                <div class="border-2 border-dashed border-gray-300 p-3 rounded-xl hover:border-primary transition bg-gray-50 text-center">
+                <div class="border-2 border-dashed border-gray-300 p-3 rounded-xl hover:border-primary transition bg-gray-50 text-center relative">
                     <p class="text-xs font-bold text-gray-600 mb-2 bg-white inline-block px-2 py-1 rounded shadow-sm">Foto Detail</p>
                     
-                    <?php if(!empty($product['image2'])): ?>
-                        <div class="relative w-full h-32 mb-2 group">
-                            <img src="../uploads/<?= $product['image2'] ?>" class="w-full h-full object-cover rounded-lg">
-                            <div class="absolute inset-0 bg-black/50 hidden group-hover:flex items-center justify-center text-white text-xs rounded-lg">Foto Lama</div>
-                        </div>
-                    <?php else: ?>
-                        <div class="w-full h-32 mb-2 bg-gray-200 rounded-lg flex items-center justify-center text-gray-400 text-xs">Belum ada foto</div>
-                    <?php endif; ?>
+                    <div class="w-full h-32 mb-2 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden">
+                        <img id="prev-img2" src="<?= !empty($product['image2']) ? '../uploads/'.$product['image2'] : '' ?>" 
+                             class="w-full h-full object-cover <?= !empty($product['image2']) ? '' : 'hidden' ?>">
+                        <span id="ph-img2" class="text-gray-400 text-xs <?= !empty($product['image2']) ? 'hidden' : '' ?>">Preview Foto</span>
+                    </div>
 
-                    <input type="file" name="image2" class="w-full text-xs text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-primary file:text-white hover:file:bg-teal-700" <?= (!empty($product['image2'])) ? '' : 'required' ?>>
+                    <input type="file" name="image2" onchange="previewFile(this, 'prev-img2', 'ph-img2')" 
+                           class="w-full text-xs text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-primary file:text-white hover:file:bg-teal-700" 
+                           <?= (!empty($product['image2'])) ? '' : 'required' ?>>
                 </div>
 
             </div>
@@ -217,6 +210,24 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         </div>
     </form>
 </div>
+
+<script>
+function previewFile(input, imgId, placeholderId) {
+    const preview = document.getElementById(imgId);
+    const placeholder = document.getElementById(placeholderId);
+    const file = input.files[0];
+
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            preview.src = e.target.result;
+            preview.classList.remove('hidden'); // Tampilkan gambar
+            placeholder.classList.add('hidden'); // Sembunyikan teks placeholder
+        }
+        reader.readAsDataURL(file);
+    }
+}
+</script>
 
 <?php if($showModal): ?>
 <div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
