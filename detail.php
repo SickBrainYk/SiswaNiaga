@@ -134,7 +134,12 @@ require_once 'layout/header.php';
             <p class="text-gray-500 leading-relaxed mb-8 text-base"><?= nl2br($product['description']) ?></p>
 
             <?php 
-                $waText = "Halo {$product['student_name']}, saya tertarik dengan karya *{$product['title']}*."; 
+                $waText = "Halo {$product['student_name']},\n\n" .
+                          "Saya ingin membeli karya Anda:\n" .
+                          "*Judul:* {$product['title']}\n" .
+                          "*Harga:* Rp " . number_format($product['price'], 0, ',', '.') . "\n\n" .
+                          "Apakah stok masih tersedia dan bagaimana cara pembayarannya?";
+                
                 $waLink = "https://wa.me/{$product['phone']}?text=" . urlencode($waText);
             ?>
             <a href="<?= $waLink ?>" target="_blank" class="w-full bg-black text-white font-medium py-4 rounded-full text-center hover:bg-gray-800 transition shadow-lg flex items-center justify-center gap-2 mb-4">

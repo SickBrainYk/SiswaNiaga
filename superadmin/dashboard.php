@@ -128,9 +128,9 @@ if ($page == 'overview') {
 
 <div class="flex min-h-[calc(100vh-64px)] bg-gray-50">
     
-    <aside class="w-64 bg-white shadow-xl hidden md:block border-r border-gray-100 flex-shrink-0 z-10">
+    <aside class="w-64 bg-white shadow-xl hidden md:block border-r border-gray-100 flex-shrink-0 z-10 sticky top-[64px] h-[calc(100vh-64px)] overflow-y-auto">
         <div class="p-6">
-            <h2 class="text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-teal-500 to-emerald-600">Super Admin</h2>
+            <h2 class="text-2xl font-extrabold text-primary">Super Admin</h2>
             <p class="text-xs text-gray-400 mt-1 font-medium tracking-wide">CONTROL PANEL PUSAT</p>
         </div>
         <nav class="mt-2 space-y-1 px-3">
@@ -191,17 +191,14 @@ if ($page == 'overview') {
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                
                 <div class="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 lg:col-span-2">
                     <div class="flex justify-between items-center mb-6">
                         <h3 class="font-bold text-xl text-gray-800">Analisis Data Sistem</h3>
                     </div>
-                    
                     <div class="relative w-full h-[350px]">
                         <canvas id="barChart"></canvas>
                     </div>
                 </div>
-
                 <div class="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
                     <div class="flex justify-between items-center mb-6">
                         <h3 class="font-bold text-gray-800">Sekolah Baru</h3>
@@ -225,7 +222,6 @@ if ($page == 'overview') {
                     </div>
                 </div>
             </div>
-
             <script>
                 const ctx = document.getElementById('barChart').getContext('2d');
                 new Chart(ctx, {
@@ -235,86 +231,72 @@ if ($page == 'overview') {
                         datasets: [{
                             label: 'Jumlah Data',
                             data: <?= json_encode($chart_data) ?>,
-                            backgroundColor: [
-                                '#0d9488', // Teal
-                                '#2563eb', // Blue
-                                '#16a34a', // Green
-                                '#374151', // Gray
-                                '#9333ea', // Purple
-                                '#dc2626'  // Red
-                            ],
+                            backgroundColor: ['#0d9488', '#2563eb', '#16a34a', '#374151', '#9333ea', '#dc2626'],
                             borderRadius: 8,
                             barThickness: 40
                         }]
                     },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: { display: false },
-                            tooltip: {
-                                backgroundColor: 'rgba(17, 24, 39, 0.9)',
-                                padding: 12,
-                                cornerRadius: 8
-                            }
-                        },
-                        scales: {
-                            y: {
-                                beginAtZero: true,
-                                ticks: {
-                                    stepSize: 1, // Kunci: Jarak antar angka minimal 1 (tidak ada koma)
-                                    precision: 0, // Kunci: Tidak menampilkan desimal
-                                    font: { family: "'Inter', sans-serif" }
-                                },
-                                grid: {
-                                    color: '#f3f4f6',
-                                    borderDash: [5, 5]
-                                }
-                            },
-                            x: {
-                                grid: { display: false },
-                                ticks: { 
-                                    font: { family: "'Inter', sans-serif", weight: 'bold' } 
-                                }
-                            }
-                        }
-                    }
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } }, x: { grid: { display: false } } } }
                 });
             </script>
 
         <?php elseif($page == 'schools'): ?>
             <?php $schools = $pdo->query("SELECT * FROM schools ORDER BY name ASC")->fetchAll(); ?>
-            <h1 class="text-2xl font-bold mb-6 text-gray-800">Manajemen Data Sekolah</h1>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div class="bg-white p-6 rounded shadow h-fit">
-                    <h3 class="font-bold border-b pb-2 mb-4">Tambah Sekolah Baru</h3>
-                    <form method="POST" class="flex flex-col gap-3">
-                        <label class="text-sm text-gray-600">Nama Sekolah</label>
-                        <input type="text" name="school_name" placeholder="Contoh: SMA Negeri 1..." class="border p-2 rounded focus:ring-1 focus:ring-primary" required>
-                        <button type="submit" name="add_school" class="bg-primary text-white py-2 rounded font-bold hover:bg-teal-700 transition">Simpan Sekolah</button>
+            
+            <h1 class="text-2xl font-bold text-gray-800 mb-6">Manajemen Data Sekolah</h1>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 h-fit">
+                    <h3 class="font-bold text-gray-800 text-lg mb-6 border-b border-gray-100 pb-2">Tambah Sekolah Baru</h3>
+                    
+                    <form method="POST" class="flex flex-col gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-600 mb-2">Nama Sekolah</label>
+                            <input type="text" name="school_name" placeholder="Contoh: SMA Negeri 1..." 
+                                   class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition text-sm bg-white" required>
+                        </div>
+                        <button type="submit" name="add_school" 
+                                class="w-full bg-teal-700 text-white font-bold py-2.5 rounded-lg hover:bg-teal-800 transition shadow-sm hover:shadow-md text-sm">
+                            Simpan Sekolah
+                        </button>
                     </form>
                 </div>
-                <div class="md:col-span-2 bg-white p-6 rounded shadow">
-                    <h3 class="font-bold border-b pb-2 mb-4">Daftar Sekolah Terdaftar (<?= count($schools) ?>)</h3>
-                    <div class="overflow-y-auto max-h-[500px]">
+
+                <div class="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 p-6 h-fit">
+                    <h3 class="font-bold text-gray-800 text-lg mb-4">Daftar Sekolah Terdaftar (<?= count($schools) ?>)</h3>
+                    
+                    <div class="overflow-hidden border border-gray-100 rounded-lg">
                         <table class="w-full text-sm text-left">
-                            <thead class="bg-gray-50 border-b sticky top-0"><tr><th class="py-3 px-2">Nama Sekolah</th><th class="py-3 px-2 text-right">Aksi</th></tr></thead>
-                            <tbody>
+                            <thead class="bg-gray-50 border-b border-gray-100">
+                                <tr>
+                                    <th class="py-3 px-4 font-bold text-gray-600">Nama Sekolah</th>
+                                    <th class="py-3 px-4 text-right font-bold text-gray-600">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
                                 <?php foreach($schools as $s): ?>
-                                <tr class="border-b last:border-0 hover:bg-gray-50 transition">
-                                    <td class="py-3 px-2 font-medium"><?= $s['name'] ?></td>
-                                    <td class="py-3 px-2 text-right">
+                                <tr class="hover:bg-gray-50 transition">
+                                    <td class="py-4 px-4 font-medium text-gray-800"><?= $s['name'] ?></td>
+                                    <td class="py-4 px-4 text-right">
                                         <form method="POST" onsubmit="return confirm('PERINGATAN: Menghapus sekolah akan menghapus SEMUA DATA (Guru, Siswa, Produk) di sekolah ini. Lanjutkan?')">
-                                            <input type="hidden" name="delete_type" value="school"><input type="hidden" name="delete_id" value="<?= $s['id'] ?>">
-                                            <button class="bg-red-100 text-red-600 px-3 py-1 rounded text-xs hover:bg-red-200 font-bold">Hapus</button>
+                                            <input type="hidden" name="delete_type" value="school">
+                                            <input type="hidden" name="delete_id" value="<?= $s['id'] ?>">
+                                            <button class="bg-red-50 text-red-600 px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-red-100 transition border border-red-100">
+                                                Hapus
+                                            </button>
                                         </form>
                                     </td>
                                 </tr>
                                 <?php endforeach; ?>
+                                <?php if(count($schools) == 0): ?>
+                                    <tr><td colspan="2" class="py-8 text-center text-gray-500 italic">Belum ada sekolah terdaftar.</td></tr>
+                                <?php endif; ?>
                             </tbody>
                         </table>
                     </div>
                 </div>
+
             </div>
 
         <?php elseif($page == 'admins'): ?>
