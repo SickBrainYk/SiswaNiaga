@@ -22,6 +22,52 @@ if ($id) {
     if(!$product) die("Akses ditolak atau produk tidak ditemukan.");
 }
 
+// --- FUNGSI KOMPRESI GAMBAR OTOMATIS ---
+function compressImage($source, $destination, $maxSizeKB) {
+    // 1. Ambil Info Gambar
+    $imgInfo = getimagesize($source);
+    $mime = $imgInfo['mime'];
+    
+    // 2. Buat Image Resource berdasarkan tipe file
+    switch($mime){
+        case 'image/jpeg': $image = imagecreatefromjpeg($source); break;
+        case 'image/png':  $image = imagecreatefrompng($source); break;
+        case 'image/gif':  $image = imagecreatefromgif($source); break;
+        default: return false; // Tipe tidak didukung
+    }
+
+    // 3. Handle Transparansi (Khusus PNG/GIF jika diubah ke JPG background jadi hitam, kita ubah jadi putih)
+    if ($mime == 'image/png' || $mime == 'image/gif') {
+        $bg = imagecreatetruecolor(imagesx($image), imagesy($image));
+        $white = imagecolorallocate($bg, 255, 255, 255);
+        imagefill($bg, 0, 0, $white);
+        imagecopy($bg, $image, 0, 0, 0, 0, imagesx($image), imagesy($image));
+        $image = $bg;
+    }
+
+    // 4. Logika Kompresi (Looping quality sampai file size < Max Size)
+    $quality = 90; // Mulai dari kualitas 90%
+    $step = 5;     // Turun 5% setiap loop
+    $maxSizeBytes = $maxSizeKB * 1024; // Konversi KB ke Bytes
+
+    do {
+        // Simpan gambar ke tujuan dengan kualitas saat ini
+        imagejpeg($image, $destination, $quality);
+        
+        // Cek ukuran file hasil
+        $fileSize = filesize($destination);
+        
+        // Kurangi kualitas untuk iterasi berikutnya
+        $quality -= $step;
+
+    } while ($fileSize > $maxSizeBytes && $quality >= 10); // Stop jika sudah target atau kualitas terlalu rendah (10%)
+
+    // Bersihkan memori
+    imagedestroy($image);
+    
+    return true;
+}
+
 // 2. LOGIC SIMPAN DATA (POST)
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $category = sanitize($_POST['category']);
@@ -45,38 +91,47 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $error = "Foto ke-3 wajib diisi!";
     }
 
-    // --- PROSES UPLOAD ---
+    // --- PROSES UPLOAD DENGAN KOMPRESI ---
     if (!isset($error)) {
-        function processUpload($inputName, $currentImgName) {
+        
+        function processUploadAndCompress($inputName, $currentImgName) {
             if (!empty($_FILES[$inputName]['name'])) {
-                $upload = uploadImage($_FILES[$inputName]); // Fungsi dari config/functions.php
-                if ($upload['status']) {
+                
+                $tmpName = $_FILES[$inputName]['tmp_name'];
+                $ext = 'jpg'; // Kita paksa jadi JPG agar kompresi maksimal
+                $newFileName = uniqid() . '_' . time() . '.' . $ext;
+                $targetDir = "../uploads/";
+                $targetFile = $targetDir . $newFileName;
+
+                // Jalankan Kompresi (Max 250KB)
+                if (compressImage($tmpName, $targetFile, 250)) {
+                    // Jika sukses upload baru, hapus gambar lama
                     if ($currentImgName && file_exists("../uploads/" . $currentImgName)) {
                         unlink("../uploads/" . $currentImgName);
                     }
-                    return $upload['fileName']; 
+                    return $newFileName;
                 } else {
-                    return ['error' => $upload['msg']]; 
+                    return ['error' => "Gagal mengompres gambar. Pastikan format JPG/PNG."];
                 }
             }
             return $currentImgName; 
         }
 
         // 1. Proses Image Utama
-        $res1 = processUpload('image', $imgUtama);
+        $res1 = processUploadAndCompress('image', $imgUtama);
         if (is_array($res1)) $error = "Foto 1: " . $res1['error'];
         else $imgUtama = $res1;
 
         // 2. Proses Image 1
         if (!isset($error)) {
-            $res2 = processUpload('image1', $imgKedua);
+            $res2 = processUploadAndCompress('image1', $imgKedua);
             if (is_array($res2)) $error = "Foto 2: " . $res2['error'];
             else $imgKedua = $res2;
         }
 
         // 3. Proses Image 2
         if (!isset($error)) {
-            $res3 = processUpload('image2', $imgKetiga);
+            $res3 = processUploadAndCompress('image2', $imgKetiga);
             if (is_array($res3)) $error = "Foto 3: " . $res3['error'];
             else $imgKetiga = $res3;
         }
@@ -110,7 +165,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 <div class="max-w-3xl mx-auto px-4 py-8 bg-white shadow-lg mt-10 rounded-xl border border-gray-100">
     <div class="border-b pb-4 mb-6">
         <h2 class="text-2xl font-bold text-gray-800"><?= $id ? 'Edit' : 'Upload' ?> Karya</h2>
-        <p class="text-sm text-gray-500">Pastikan upload 3 foto terbaik dari karyamu.</p>
+        <p class="text-sm text-gray-500">Gambar akan otomatis dikompres agar ringan (Max 250KB).</p>
     </div>
 
     <?php if(isset($error)) echo "<div class='bg-red-50 text-red-500 p-3 rounded mb-4 text-sm font-bold border border-red-200'>$error</div>"; ?>
@@ -156,13 +211,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 
                 <div class="border-2 border-dashed border-gray-300 p-3 rounded-xl hover:border-primary transition bg-gray-50 text-center relative">
                     <p class="text-xs font-bold text-gray-600 mb-2 bg-white inline-block px-2 py-1 rounded shadow-sm">Foto Utama</p>
-                    
                     <div class="w-full h-32 mb-2 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden">
                         <img id="prev-img" src="<?= !empty($product['image']) ? '../uploads/'.$product['image'] : '' ?>" 
                              class="w-full h-full object-cover <?= !empty($product['image']) ? '' : 'hidden' ?>">
                         <span id="ph-img" class="text-gray-400 text-xs <?= !empty($product['image']) ? 'hidden' : '' ?>">Preview Foto</span>
                     </div>
-
                     <input type="file" name="image" onchange="previewFile(this, 'prev-img', 'ph-img')" 
                            class="w-full text-xs text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-primary file:text-white hover:file:bg-teal-700" 
                            <?= (!empty($product['image'])) ? '' : 'required' ?>>
@@ -170,13 +223,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
                 <div class="border-2 border-dashed border-gray-300 p-3 rounded-xl hover:border-primary transition bg-gray-50 text-center relative">
                     <p class="text-xs font-bold text-gray-600 mb-2 bg-white inline-block px-2 py-1 rounded shadow-sm">Foto Samping</p>
-                    
                     <div class="w-full h-32 mb-2 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden">
                         <img id="prev-img1" src="<?= !empty($product['image1']) ? '../uploads/'.$product['image1'] : '' ?>" 
                              class="w-full h-full object-cover <?= !empty($product['image1']) ? '' : 'hidden' ?>">
                         <span id="ph-img1" class="text-gray-400 text-xs <?= !empty($product['image1']) ? 'hidden' : '' ?>">Preview Foto</span>
                     </div>
-
                     <input type="file" name="image1" onchange="previewFile(this, 'prev-img1', 'ph-img1')" 
                            class="w-full text-xs text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-primary file:text-white hover:file:bg-teal-700" 
                            <?= (!empty($product['image1'])) ? '' : 'required' ?>>
@@ -184,20 +235,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
                 <div class="border-2 border-dashed border-gray-300 p-3 rounded-xl hover:border-primary transition bg-gray-50 text-center relative">
                     <p class="text-xs font-bold text-gray-600 mb-2 bg-white inline-block px-2 py-1 rounded shadow-sm">Foto Detail</p>
-                    
                     <div class="w-full h-32 mb-2 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden">
                         <img id="prev-img2" src="<?= !empty($product['image2']) ? '../uploads/'.$product['image2'] : '' ?>" 
                              class="w-full h-full object-cover <?= !empty($product['image2']) ? '' : 'hidden' ?>">
                         <span id="ph-img2" class="text-gray-400 text-xs <?= !empty($product['image2']) ? 'hidden' : '' ?>">Preview Foto</span>
                     </div>
-
                     <input type="file" name="image2" onchange="previewFile(this, 'prev-img2', 'ph-img2')" 
                            class="w-full text-xs text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-primary file:text-white hover:file:bg-teal-700" 
                            <?= (!empty($product['image2'])) ? '' : 'required' ?>>
                 </div>
 
             </div>
-            <p class="text-xs text-gray-400 mt-2">* Format: JPG/PNG, Maks 2MB per foto.</p>
+            <p class="text-xs text-gray-400 mt-2">* Gambar akan otomatis dikompres sistem jika terlalu besar.</p>
         </div>
 
         <div class="pt-4">
@@ -221,8 +270,8 @@ function previewFile(input, imgId, placeholderId) {
         const reader = new FileReader();
         reader.onload = function(e) {
             preview.src = e.target.result;
-            preview.classList.remove('hidden'); // Tampilkan gambar
-            placeholder.classList.add('hidden'); // Sembunyikan teks placeholder
+            preview.classList.remove('hidden');
+            placeholder.classList.add('hidden');
         }
         reader.readAsDataURL(file);
     }

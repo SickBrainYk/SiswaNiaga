@@ -2,6 +2,11 @@
 require_once 'config/database.php';
 require_once 'config/functions.php';
 
+// Pastikan session dimulai
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
 $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 $current_user_id = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : null;
 
@@ -10,26 +15,21 @@ $current_user_id = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : null;
 $pdo->prepare("UPDATE products SET views = views + 1 WHERE id = ?")->execute([$id]);
 
 
-// --- 2. LOGIKA HANDLING POST (LIKE & KOMENTAR) ---
+// --- 2. LOGIKA HANDLING POST (LIKE, KOMENTAR, & HAPUS KOMENTAR) ---
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     
     // A. Handle Like (TANPA LOGIN - SESSION BASED)
     if (isset($_POST['toggle_like'])) {
-        // Cek session: Apakah browser ini sudah like produk ini?
         $sessKey = 'liked_product_' . $id;
 
         if (isset($_SESSION[$sessKey])) {
-            // Sudah like -> Lakukan UNLIKE (Kurangi 1)
-            // Pakai GREATEST agar tidak minus
             $pdo->prepare("UPDATE products SET likes = GREATEST(likes - 1, 0) WHERE id = ?")->execute([$id]);
-            unset($_SESSION[$sessKey]); // Hapus status like di session
+            unset($_SESSION[$sessKey]);
         } else {
-            // Belum like -> Lakukan LIKE (Tambah 1)
             $pdo->prepare("UPDATE products SET likes = likes + 1 WHERE id = ?")->execute([$id]);
-            $_SESSION[$sessKey] = true; // Simpan status like di session
+            $_SESSION[$sessKey] = true;
         }
         
-        // Refresh agar angka berubah
         header("Location: detail.php?id=$id");
         exit;
     }
@@ -50,7 +50,33 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
     }
 
-    // C. Handle Laporan
+    // C. Handle Hapus Komentar [FITUR BARU]
+    if (isset($_POST['delete_comment'])) {
+        if (!$current_user_id) {
+             echo "<script>alert('Akses ditolak'); window.location='detail.php?id=$id';</script>";
+             exit;
+        }
+
+        $comment_id = (int)$_POST['comment_id'];
+
+        // Cek kepemilikan komentar sebelum menghapus
+        $stmtCheck = $pdo->prepare("SELECT user_id FROM product_comments WHERE id = ?");
+        $stmtCheck->execute([$comment_id]);
+        $commentData = $stmtCheck->fetch();
+
+        // Hanya pemilik komentar yang bisa menghapus (atau admin jika ada role admin di session)
+        if ($commentData && $commentData['user_id'] == $current_user_id) {
+            $stmtDel = $pdo->prepare("DELETE FROM product_comments WHERE id = ?");
+            $stmtDel->execute([$comment_id]);
+            header("Location: detail.php?id=$id#comments-area");
+            exit;
+        } else {
+             echo "<script>alert('Anda tidak berhak menghapus komentar ini'); window.location='detail.php?id=$id';</script>";
+             exit;
+        }
+    }
+
+    // D. Handle Laporan
     if (isset($_POST['submit_report'])) {
         $reason = sanitize($_POST['reason']);
         if ($reason) {
@@ -63,7 +89,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 }
 
 // --- 3. AMBIL DATA UTAMA ---
-// Ambil data produk (termasuk kolom views dan likes yang baru)
 $stmt = $pdo->prepare("SELECT p.*, u.name as student_name, u.email as student_email, u.phone, s.name as school_name 
                         FROM products p 
                         JOIN users u ON p.user_id = u.id 
@@ -79,7 +104,7 @@ $stmtCount = $pdo->prepare("SELECT COUNT(*) FROM products WHERE user_id = ? AND 
 $stmtCount->execute([$product['user_id']]);
 $total_karya_siswa = $stmtCount->fetchColumn();
 
-// Cek Status Like (Berdasarkan Session)
+// Cek Status Like
 $is_liked = isset($_SESSION['liked_product_' . $id]);
 
 // Data Komentar
@@ -245,17 +270,32 @@ require_once 'layout/header.php';
         <div class="space-y-6">
             <?php if($total_comments > 0): ?>
                 <?php foreach($comments as $c): ?>
-                <div class="flex gap-4">
+                <div class="flex gap-4 group">
                     <div class="w-10 h-10 rounded-full <?= $c['role'] == 'student' ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-600' ?> flex items-center justify-center font-bold shrink-0">
                         <?= substr($c['name'], 0, 1) ?>
                     </div>
-                    <div>
-                        <div class="flex items-center gap-2 mb-1">
-                            <span class="font-bold text-gray-900"><?= htmlspecialchars($c['name']) ?></span>
-                            <?php if($c['role'] == 'admin' || $c['role'] == 'superadmin'): ?>
-                                <span class="bg-blue-100 text-blue-700 text-[10px] px-2 py-0.5 rounded-full font-bold uppercase">Guru/Admin</span>
+                    <div class="flex-1">
+                        <div class="flex items-center justify-between mb-1">
+                            <div class="flex items-center gap-2">
+                                <span class="font-bold text-gray-900"><?= htmlspecialchars($c['name']) ?></span>
+                                <?php if($c['role'] == 'admin' || $c['role'] == 'superadmin'): ?>
+                                    <span class="bg-blue-100 text-blue-700 text-[10px] px-2 py-0.5 rounded-full font-bold uppercase">Guru/Admin</span>
+                                <?php endif; ?>
+                                <span class="text-xs text-gray-400">• <?= date('d M Y, H:i', strtotime($c['created_at'])) ?></span>
+                            </div>
+                            
+                            <?php if ($current_user_id && $current_user_id == $c['user_id']): ?>
+                                <form method="POST" onsubmit="return confirm('Yakin ingin menghapus komentar ini?');">
+                                    <input type="hidden" name="delete_comment" value="1">
+                                    <input type="hidden" name="comment_id" value="<?= $c['id'] ?>">
+                                    <button type="submit" class="text-gray-400 hover:text-red-500 transition text-xs flex items-center gap-1" title="Hapus Komentar">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                        Hapus
+                                    </button>
+                                </form>
                             <?php endif; ?>
-                            <span class="text-xs text-gray-400">• <?= date('d M Y, H:i', strtotime($c['created_at'])) ?></span>
                         </div>
                         <p class="text-gray-600 text-sm leading-relaxed"><?= nl2br(htmlspecialchars($c['comment'])) ?></p>
                     </div>
