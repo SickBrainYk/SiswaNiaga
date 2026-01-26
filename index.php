@@ -24,8 +24,12 @@ $stmtCount = $pdo->query($sqlCount);
 $total_rows = $stmtCount->fetchColumn();
 $total_pages = ceil($total_rows / $limit);
 
-// --- 4. AMBIL DATA PRODUK ---
-$sql = "SELECT p.*, u.name as student_name, u.phone, s.name as school_name 
+// --- 4. AMBIL DATA PRODUK (DENGAN TOTAL LIKES) ---
+$sql = "SELECT p.*, 
+               u.name as student_name, 
+               u.phone, 
+               s.name as school_name,
+               (SELECT COUNT(*) FROM product_likes WHERE product_id = p.id) as total_likes 
         FROM products p 
         JOIN users u ON p.user_id = u.id 
         JOIN schools s ON p.school_id = s.id 
@@ -81,32 +85,38 @@ function buildUrl($newPage) {
             <h2 class="text-xl md:text-2xl font-bold text-gray-700">
                 Belanja Berdasarkan <span class="text-primary border-b-4 border-primary pb-1">Kategori</span>
             </h2>
+            
+            <?php if($search || $school_filter || $cat_filter): ?>
+            <a href="index.php" class="text-sm font-bold text-red-500 hover:text-red-700 flex items-center gap-1 transition-colors bg-red-50 px-3 py-1.5 rounded-full">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                Reset Filter
+            </a>
+            <?php else: ?>
             <a href="index.php" class="text-sm font-semibold text-primary hover:text-teal-800 flex items-center gap-1 transition-colors">Lihat Semua <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg></a>
+            <?php endif; ?>
         </div>
 
         <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-4">
             <?php foreach($categories as $key => $label): ?>
                 <?php 
-                    // --- LOGIKA PENCARIAN GAMBAR ---
-                    $imgSrc = null; // Reset variable
+                    // --- LOGIKA PENCARIAN GAMBAR DARI FOLDER ASSETS ---
+                    $imgSrc = null; 
 
-                    // 1. Cek KHUSUS untuk Kuliner -> makanan.jpg
+                    // 1. Cek KHUSUS untuk Kuliner
                     if ($key == 'Kuliner') {
                         if (file_exists("assets/icons/makanan.jpg")) $imgSrc = "assets/icons/makanan.jpg";
                         elseif (file_exists("assets/icons/makanan.png")) $imgSrc = "assets/icons/makanan.png";
                     }
 
-                    // 2. Jika belum ketemu (atau bukan Kuliner), cari sesuai nama kategori
+                    // 2. Cek nama kategori standard (hapus spasi)
                     if (!$imgSrc) {
-                        $cleanKey = str_replace(' ', '', $key); // Hilangkan spasi (Seni Rupa -> SeniRupa)
-                        
+                        $cleanKey = str_replace(' ', '', $key); 
                         if (file_exists("assets/icons/{$cleanKey}.jpg")) $imgSrc = "assets/icons/{$cleanKey}.jpg";
                         elseif (file_exists("assets/icons/{$cleanKey}.png")) $imgSrc = "assets/icons/{$cleanKey}.png";
-                        // Coba juga nama asli dengan spasi jika di server lokal (Seni Rupa.jpg)
                         elseif (file_exists("assets/icons/{$key}.jpg")) $imgSrc = "assets/icons/{$key}.jpg"; 
                     }
 
-                    // 3. Fallback jika tidak ada gambar sama sekali
+                    // 3. Fallback (Placeholder)
                     if (!$imgSrc) {
                         $imgSrc = "https://via.placeholder.com/200/e5e7eb/0f766e?text=" . substr($key,0,1);
                     }
@@ -147,7 +157,16 @@ function buildUrl($newPage) {
                 <?php foreach($schools as $s): ?><option value="<?= $s['id'] ?>" <?= $school_filter == $s['id'] ? 'selected' : '' ?>><?= $s['name'] ?></option><?php endforeach; ?>
             </select>
         </div>
-        <button type="submit" class="bg-primary text-white px-8 py-3 rounded-lg font-bold hover:bg-teal-700 shadow-md transition-transform transform hover:scale-105">Cari</button>
+        
+        <div class="flex gap-2 w-full md:w-auto">
+            <button type="submit" class="bg-primary text-white px-8 py-3 rounded-lg font-bold hover:bg-teal-700 shadow-md transition-transform transform hover:scale-105 flex-1 md:flex-none">Cari</button>
+            
+            <a href="index.php" class="bg-gray-100 text-gray-600 px-4 py-3 rounded-lg font-bold hover:bg-gray-200 transition border border-gray-200 flex items-center justify-center" title="Reset Pencarian & Filter">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+            </a>
+        </div>
     </form>
 
     <div class="text-center text-sm text-gray-500 mb-8">Menampilkan <b><?= count($products) ?></b> dari total <b><?= $total_rows ?></b> karya.</div>
@@ -161,7 +180,15 @@ function buildUrl($newPage) {
                         <a href="detail.php?id=<?= $p['id'] ?>" class="block w-full h-full">
                             <img src="uploads/<?= $p['image'] ?>" alt="<?= $p['title'] ?>" class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500">
                         </a>
-                        <span class="absolute bottom-3 left-3 bg-white/95 backdrop-blur-sm text-gray-800 text-[10px] font-bold px-3 py-1.5 rounded-full shadow-md z-10"><?= $p['school_name'] ?></span>
+                        <span class="absolute bottom-3 left-3 bg-white/95 backdrop-blur-sm text-gray-800 text-[10px] font-bold px-3 py-1.5 rounded-full shadow-md z-10 truncate max-w-[80%]"><?= $p['school_name'] ?></span>
+                        
+                        <?php if($p['total_likes'] > 0): ?>
+                        <div class="absolute top-3 left-3 bg-white/90 backdrop-blur-md px-2 py-1 rounded-full flex items-center gap-1 shadow-sm z-20">
+                            <svg class="w-3 h-3 text-red-500 fill-current" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+                            <span class="text-[10px] font-bold text-gray-700"><?= $p['total_likes'] ?></span>
+                        </div>
+                        <?php endif; ?>
+
                         <a href="detail.php?id=<?= $p['id'] ?>&trigger_report=true" class="absolute top-3 right-3 bg-white/60 hover:bg-white p-2 rounded-full text-gray-500 hover:text-red-600 transition-all backdrop-blur-sm z-20 shadow-sm" title="Laporkan"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 21v-8a2 2 0 01-2-8 4 4 0 016.5-2.6A4 4 0 0113 5c.74 0 1.45.18 2.08.51a4 4 0 003.56.09L19 5a2 2 0 012 2v6a2 2 0 01-2 2h-1a2 2 0 00-1.78.9A4 4 0 0113 18a4 4 0 00-3.24-1.35L9 17a2 2 0 01-2-2" /></svg></a>
                     </div>
 

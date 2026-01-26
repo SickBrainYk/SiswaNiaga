@@ -9,38 +9,40 @@ if (session_status() === PHP_SESSION_NONE) {
 
 $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 $current_user_id = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : null;
+$current_role = isset($_SESSION['role']) ? $_SESSION['role'] : null;
 
-// --- 1. LOGIKA VIEW (BERTAMBAH TERUS / UNLIMITED) ---
-// Setiap halaman dibuka, views nambah 1
+// --- 1. LOGIKA VIEW ---
 $pdo->prepare("UPDATE products SET views = views + 1 WHERE id = ?")->execute([$id]);
 
-
-// --- 2. LOGIKA HANDLING POST (LIKE, KOMENTAR, & HAPUS KOMENTAR) ---
+// --- 2. LOGIKA HANDLING POST ---
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     
-    // A. Handle Like (TANPA LOGIN - SESSION BASED)
+    // A. Handle Like (WAJIB LOGIN)
     if (isset($_POST['toggle_like'])) {
-        $sessKey = 'liked_product_' . $id;
+        if (!$current_user_id) {
+            echo "<script>alert('Silakan login untuk menyukai karya ini.'); window.location='auth/login.php';</script>";
+            exit;
+        }
 
-        if (isset($_SESSION[$sessKey])) {
-            $pdo->prepare("UPDATE products SET likes = GREATEST(likes - 1, 0) WHERE id = ?")->execute([$id]);
-            unset($_SESSION[$sessKey]);
+        $checkLike = $pdo->prepare("SELECT id FROM product_likes WHERE product_id = ? AND user_id = ?");
+        $checkLike->execute([$id, $current_user_id]);
+
+        if ($checkLike->rowCount() > 0) {
+            $pdo->prepare("DELETE FROM product_likes WHERE product_id = ? AND user_id = ?")->execute([$id, $current_user_id]);
         } else {
-            $pdo->prepare("UPDATE products SET likes = likes + 1 WHERE id = ?")->execute([$id]);
-            $_SESSION[$sessKey] = true;
+            $pdo->prepare("INSERT INTO product_likes (product_id, user_id) VALUES (?, ?)")->execute([$id, $current_user_id]);
         }
         
         header("Location: detail.php?id=$id");
         exit;
     }
 
-    // B. Handle Kirim Komentar (BUTUH LOGIN)
+    // B. Handle Kirim Komentar
     if (isset($_POST['submit_comment'])) {
         if (!$current_user_id) {
             echo "<script>alert('Harap login untuk berkomentar'); window.location='auth/login.php';</script>";
             exit;
         }
-        
         $comment = sanitize($_POST['comment']);
         if ($comment) {
             $stmtComm = $pdo->prepare("INSERT INTO product_comments (product_id, user_id, comment) VALUES (?, ?, ?)");
@@ -50,28 +52,23 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
     }
 
-    // C. Handle Hapus Komentar [FITUR BARU]
+    // C. Handle Hapus Komentar
     if (isset($_POST['delete_comment'])) {
         if (!$current_user_id) {
              echo "<script>alert('Akses ditolak'); window.location='detail.php?id=$id';</script>";
              exit;
         }
-
         $comment_id = (int)$_POST['comment_id'];
-
-        // Cek kepemilikan komentar sebelum menghapus
         $stmtCheck = $pdo->prepare("SELECT user_id FROM product_comments WHERE id = ?");
         $stmtCheck->execute([$comment_id]);
         $commentData = $stmtCheck->fetch();
 
-        // Hanya pemilik komentar yang bisa menghapus (atau admin jika ada role admin di session)
-        if ($commentData && $commentData['user_id'] == $current_user_id) {
-            $stmtDel = $pdo->prepare("DELETE FROM product_comments WHERE id = ?");
-            $stmtDel->execute([$comment_id]);
+        if ($commentData && ($commentData['user_id'] == $current_user_id || $current_role == 'admin' || $current_role == 'superadmin')) {
+            $pdo->prepare("DELETE FROM product_comments WHERE id = ?")->execute([$comment_id]);
             header("Location: detail.php?id=$id#comments-area");
             exit;
         } else {
-             echo "<script>alert('Anda tidak berhak menghapus komentar ini'); window.location='detail.php?id=$id';</script>";
+             echo "<script>alert('Gagal menghapus komentar.'); window.location='detail.php?id=$id';</script>";
              exit;
         }
     }
@@ -80,8 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     if (isset($_POST['submit_report'])) {
         $reason = sanitize($_POST['reason']);
         if ($reason) {
-            $stmt_rep = $pdo->prepare("INSERT INTO reports (product_id, reason) VALUES (?, ?)");
-            $stmt_rep->execute([$id, $reason]);
+            $pdo->prepare("INSERT INTO reports (product_id, reason) VALUES (?, ?)")->execute([$id, $reason]);
             echo "<script>alert('Laporan berhasil dikirim!'); window.location='detail.php?id=$id';</script>";
             exit;
         }
@@ -99,26 +95,56 @@ $product = $stmt->fetch();
 
 if (!$product) die("Produk tidak ditemukan.");
 
-// Data Total Karya Siswa
+// Hitung Total Karya Siswa
 $stmtCount = $pdo->prepare("SELECT COUNT(*) FROM products WHERE user_id = ? AND status = 'active'");
 $stmtCount->execute([$product['user_id']]);
 $total_karya_siswa = $stmtCount->fetchColumn();
 
-// Cek Status Like
-$is_liked = isset($_SESSION['liked_product_' . $id]);
+// Cek Status Like User Login
+$is_liked = false;
+if ($current_user_id) {
+    $stmtLikeCheck = $pdo->prepare("SELECT id FROM product_likes WHERE product_id = ? AND user_id = ?");
+    $stmtLikeCheck->execute([$id, $current_user_id]);
+    if ($stmtLikeCheck->rowCount() > 0) $is_liked = true;
+}
 
-// Data Komentar
+// Hitung Total Likes Real-time
+$stmtTotalLikes = $pdo->prepare("SELECT COUNT(*) FROM product_likes WHERE product_id = ?");
+$stmtTotalLikes->execute([$id]);
+$total_likes_count = $stmtTotalLikes->fetchColumn();
+
+// Ambil Komentar
 $stmtComments = $pdo->prepare("SELECT c.*, u.name, u.role FROM product_comments c JOIN users u ON c.user_id = u.id WHERE c.product_id = ? ORDER BY c.created_at DESC");
 $stmtComments->execute([$id]);
 $comments = $stmtComments->fetchAll();
 $total_comments = count($comments);
 
-// Icon Kategori
+// --- LOGIKA GAMBAR KATEGORI (LOCAL STORAGE) ---
 $categories = function_exists('getCategories') ? getCategories() : [];
-$catLabel = isset($categories[$product['category']]) ? $categories[$product['category']] : 'Umum';
-$cleanKey = str_replace(' ', '', $product['category']);
-$iconPath = "assets/icons/{$cleanKey}.png";
-if (!file_exists($iconPath)) $iconPath = "assets/icons/Lainnya.png";
+$catKey = $product['category']; // Nama Kategori dari DB (misal: "Kuliner", "Seni Rupa")
+$catLabel = isset($categories[$catKey]) ? $categories[$catKey] : ($catKey ?? 'Umum');
+
+$iconPath = null;
+
+// 1. Cek KHUSUS untuk Kuliner -> makanan.jpg
+if ($catKey == 'Kuliner') {
+    if (file_exists("assets/icons/makanan.jpg")) $iconPath = "assets/icons/makanan.jpg";
+    elseif (file_exists("assets/icons/makanan.png")) $iconPath = "assets/icons/makanan.png";
+}
+
+// 2. Jika belum ketemu, cari sesuai nama kategori
+if (!$iconPath) {
+    $cleanKey = str_replace(' ', '', $catKey); // Hilangkan spasi
+    
+    if (file_exists("assets/icons/{$cleanKey}.jpg")) $iconPath = "assets/icons/{$cleanKey}.jpg";
+    elseif (file_exists("assets/icons/{$cleanKey}.png")) $iconPath = "assets/icons/{$cleanKey}.png";
+    elseif (file_exists("assets/icons/{$catKey}.jpg")) $iconPath = "assets/icons/{$catKey}.jpg"; 
+}
+
+// 3. Fallback jika tidak ada gambar
+if (!$iconPath) {
+    $iconPath = "https://via.placeholder.com/200/e5e7eb/0f766e?text=" . substr($catKey, 0, 1);
+}
 
 require_once 'layout/header.php';
 ?>
@@ -156,7 +182,25 @@ require_once 'layout/header.php';
         <div class="flex flex-col justify-center">
             <h1 class="text-4xl font-extrabold text-gray-900 mb-2 uppercase tracking-tight leading-none"><?= $product['title'] ?></h1>
             <div class="text-3xl font-bold text-gray-800 mb-6">Rp <?= number_format($product['price'], 0, ',', '.') ?></div>
-            <p class="text-gray-500 leading-relaxed mb-8 text-base"><?= nl2br($product['description']) ?></p>
+            
+            <p class="text-gray-500 leading-relaxed mb-6 text-base"><?= nl2br($product['description']) ?></p>
+
+            <div class="mb-8">
+                <form method="POST">
+                    <input type="hidden" name="toggle_like" value="1">
+                    <button type="submit" class="flex items-center gap-3 px-6 py-3 rounded-full transition-all duration-300 font-bold border-2 <?= $is_liked ? 'bg-red-50 border-red-500 text-red-600 hover:bg-red-100' : 'bg-white border-gray-200 text-gray-500 hover:border-red-400 hover:text-red-500' ?>">
+                        <?php if($is_liked): ?>
+                            <svg class="h-6 w-6 fill-current" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+                            <span>Disukai</span>
+                        <?php else: ?>
+                            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"></path></svg>
+                            <span>Suka Karya Ini</span>
+                        <?php endif; ?>
+                        
+                        <span class="ml-1 bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded-full"><?= number_format($total_likes_count) ?></span>
+                    </button>
+                </form>
+            </div>
 
             <?php 
                 $waText = "Halo {$product['student_name']},\n\n" .
@@ -164,10 +208,9 @@ require_once 'layout/header.php';
                           "*Judul:* {$product['title']}\n" .
                           "*Harga:* Rp " . number_format($product['price'], 0, ',', '.') . "\n\n" .
                           "Apakah stok masih tersedia dan bagaimana cara pembayarannya?";
-                
                 $waLink = "https://wa.me/{$product['phone']}?text=" . urlencode($waText);
             ?>
-            <a href="<?= $waLink ?>" target="_blank" class="w-full bg-black text-white font-medium py-4 rounded-full text-center hover:bg-gray-800 transition shadow-lg flex items-center justify-center gap-2 mb-4">
+            <a href="<?= $waLink ?>" target="_blank" class="w-full bg-black text-white font-medium py-4 rounded-full text-center hover:bg-gray-800 transition shadow-lg flex items-center justify-center gap-2 mb-4 transform hover:-translate-y-1">
                 Beli via WhatsApp
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.017-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/></svg>
             </a>
@@ -178,37 +221,35 @@ require_once 'layout/header.php';
     <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
         
         <div class="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col justify-center">
-            <h3 class="text-xl font-bold mb-4">Statistik</h3>
+            <h3 class="text-xl font-bold mb-4 text-gray-800">Statistik Karya</h3>
             <div class="space-y-4">
-                
-                <div class="flex items-center gap-4">
+                <div class="flex items-center gap-4 p-3 rounded-xl bg-gray-50">
                     <div class="w-10 h-10 rounded-lg bg-orange-100 text-orange-500 flex items-center justify-center">
                         <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                     </div>
                     <div>
-                        <p class="text-sm text-gray-500 font-medium">Total Views</p>
-                        <p class="font-bold text-gray-800"><?= number_format($product['views']) ?></p>
+                        <p class="text-xs text-gray-500 font-bold uppercase tracking-wider">Dilihat</p>
+                        <p class="font-bold text-gray-800 text-lg"><?= number_format($product['views']) ?> <span class="text-xs font-normal text-gray-400">kali</span></p>
                     </div>
                 </div>
 
-                <form method="POST" class="flex items-center gap-4 group cursor-pointer">
-                    <input type="hidden" name="toggle_like" value="1">
-                    <button type="submit" class="w-10 h-10 rounded-lg <?= $is_liked ? 'bg-red-500 text-white shadow-red-200 shadow-lg' : 'bg-red-50 text-red-400 hover:bg-red-100' ?> flex items-center justify-center transition-all">
-                        <svg class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clip-rule="evenodd" /></svg>
-                    </button>
-                    <div>
-                        <p class="text-sm text-gray-500 font-medium">Total Likes</p>
-                        <p class="font-bold text-gray-800"><?= number_format($product['likes']) ?></p> 
+                <div class="flex items-center gap-4 p-3 rounded-xl bg-gray-50">
+                    <div class="w-10 h-10 rounded-lg bg-red-100 text-red-500 flex items-center justify-center">
+                        <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg>
                     </div>
-                </form>
+                    <div>
+                        <p class="text-xs text-gray-500 font-bold uppercase tracking-wider">Disukai</p>
+                        <p class="font-bold text-gray-800 text-lg"><?= number_format($total_likes_count) ?> <span class="text-xs font-normal text-gray-400">orang</span></p> 
+                    </div>
+                </div>
 
-                <div class="flex items-center gap-4">
+                <div class="flex items-center gap-4 p-3 rounded-xl bg-gray-50">
                     <div class="w-10 h-10 rounded-lg bg-blue-100 text-blue-500 flex items-center justify-center">
                         <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
                     </div>
                     <div>
-                        <p class="text-sm text-gray-500 font-medium">Komentar</p>
-                        <p class="font-bold text-gray-800"><?= number_format($total_comments) ?></p>
+                        <p class="text-xs text-gray-500 font-bold uppercase tracking-wider">Komentar</p>
+                        <p class="font-bold text-gray-800 text-lg"><?= number_format($total_comments) ?> <span class="text-xs font-normal text-gray-400">ulasan</span></p>
                     </div>
                 </div>
             </div>
@@ -237,7 +278,10 @@ require_once 'layout/header.php';
         <div class="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex items-center justify-between">
             <div class="flex items-center gap-4">
                 <img src="<?= $iconPath ?>" class="w-12 h-12 object-contain" alt="Icon">
-                <span class="text-2xl font-bold text-gray-800"><?= $catLabel ?></span>
+                <div>
+                    <p class="text-xs text-gray-400 uppercase font-bold tracking-wider mb-1">Kategori</p>
+                    <span class="text-2xl font-bold text-gray-800"><?= $catLabel ?></span>
+                </div>
             </div>
         </div>
     </div>
