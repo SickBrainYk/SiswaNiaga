@@ -1,6 +1,12 @@
 <?php
 require_once '../config/database.php';
 require_once '../config/functions.php';
+
+// Pastikan session dimulai untuk flash message
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
 checkRole(['student']);
 
 // --- LOGIKA HAPUS (Ditaruh sebelum load header) ---
@@ -27,6 +33,9 @@ if (isset($_GET['delete_id'])) {
         $stmt_del = $pdo->prepare("DELETE FROM products WHERE id = ?");
         $stmt_del->execute([$id_produk]);
 
+        // Simpan pesan sukses ke session
+        $_SESSION['flash_message'] = "Karya berhasil dihapus.";
+        
         header("Location: dashboard.php");
         exit;
     }
@@ -60,6 +69,18 @@ foreach ($products as $p) {
 
 <div class="max-w-7xl mx-auto px-4 py-8 min-h-screen">
     
+    <?php if(isset($_SESSION['flash_message'])): ?>
+    <div class="mb-6 bg-green-50 border-l-4 border-green-500 p-4 rounded-r-lg shadow-sm flex items-center justify-between animate-fade-in-down">
+        <div class="flex items-center gap-3">
+            <div class="text-green-500 bg-green-100 rounded-full p-1">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            </div>
+            <p class="text-green-700 font-medium"><?= $_SESSION['flash_message'] ?></p>
+        </div>
+        <button onclick="this.parentElement.remove()" class="text-green-400 hover:text-green-600"><svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+    </div>
+    <?php unset($_SESSION['flash_message']); endif; ?>
+
     <div class="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
         <div>
             <h1 class="text-3xl font-extrabold text-gray-800 tracking-tight">Dashboard Kreator</h1>
@@ -221,7 +242,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 if (localProduct) {
                     // Jika status di server beda dengan status di layar (browser)
-                    // Misal: Layar 'pending', Server 'active' -> Reload!
                     if (serverProduct.status !== localProduct.currentStatus) {
                         needsReload = true;
                     }
