@@ -11,32 +11,52 @@ $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 $current_user_id = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : null;
 $current_role = isset($_SESSION['role']) ? $_SESSION['role'] : null;
 
-// --- 1. LOGIKA VIEW ---
-$pdo->prepare("UPDATE products SET views = views + 1 WHERE id = ?")->execute([$id]);
+// --- 1. HANDLING AJAX LIKE (PROSES DI LATAR BELAKANG) ---
+if (isset($_POST['ajax_toggle_like'])) {
+    header('Content-Type: application/json');
 
-// --- 2. LOGIKA HANDLING POST ---
-if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    
-    // A. Handle Like (WAJIB LOGIN)
-    if (isset($_POST['toggle_like'])) {
-        if (!$current_user_id) {
-            echo "<script>alert('Silakan login untuk menyukai karya ini.'); window.location='auth/login.php';</script>";
-            exit;
-        }
-
-        $checkLike = $pdo->prepare("SELECT id FROM product_likes WHERE product_id = ? AND user_id = ?");
-        $checkLike->execute([$id, $current_user_id]);
-
-        if ($checkLike->rowCount() > 0) {
-            $pdo->prepare("DELETE FROM product_likes WHERE product_id = ? AND user_id = ?")->execute([$id, $current_user_id]);
-        } else {
-            $pdo->prepare("INSERT INTO product_likes (product_id, user_id) VALUES (?, ?)")->execute([$id, $current_user_id]);
-        }
-        
-        header("Location: detail.php?id=$id");
+    if (!$current_user_id) {
+        echo json_encode(['status' => 'error', 'message' => 'Silakan login terlebih dahulu']);
         exit;
     }
 
+    $pid = (int)$_POST['product_id'];
+
+    try {
+        // Cek like
+        $checkLike = $pdo->prepare("SELECT id FROM product_likes WHERE product_id = ? AND user_id = ?");
+        $checkLike->execute([$pid, $current_user_id]);
+
+        $is_liked = false;
+        if ($checkLike->rowCount() > 0) {
+            // UNLIKE
+            $pdo->prepare("DELETE FROM product_likes WHERE product_id = ? AND user_id = ?")->execute([$pid, $current_user_id]);
+            $pdo->prepare("UPDATE products SET likes = GREATEST(likes - 1, 0) WHERE id = ?")->execute([$pid]);
+            $is_liked = false;
+        } else {
+            // LIKE
+            $pdo->prepare("INSERT INTO product_likes (product_id, user_id) VALUES (?, ?)")->execute([$pid, $current_user_id]);
+            $pdo->prepare("UPDATE products SET likes = likes + 1 WHERE id = ?")->execute([$pid]);
+            $is_liked = true;
+        }
+
+        // Ambil jumlah like terbaru
+        $stmtCount = $pdo->prepare("SELECT COUNT(*) FROM product_likes WHERE product_id = ?");
+        $stmtCount->execute([$pid]);
+        $new_count = $stmtCount->fetchColumn();
+
+        echo json_encode(['status' => 'success', 'is_liked' => $is_liked, 'new_count' => $new_count]);
+    } catch (Exception $e) {
+        echo json_encode(['status' => 'error', 'message' => 'Database error']);
+    }
+    exit; // Stop agar tidak merender HTML
+}
+
+// --- 2. LOGIKA VIEW & POST LAINNYA ---
+$pdo->prepare("UPDATE products SET views = views + 1 WHERE id = ?")->execute([$id]);
+
+// Handle Komentar & Laporan (Tetap pakai refresh halaman untuk konten berat)
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     // B. Handle Kirim Komentar
     if (isset($_POST['submit_comment'])) {
         if (!$current_user_id) {
@@ -54,10 +74,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
     // C. Handle Hapus Komentar
     if (isset($_POST['delete_comment'])) {
-        if (!$current_user_id) {
-             echo "<script>alert('Akses ditolak'); window.location='detail.php?id=$id';</script>";
-             exit;
-        }
         $comment_id = (int)$_POST['comment_id'];
         $stmtCheck = $pdo->prepare("SELECT user_id FROM product_comments WHERE id = ?");
         $stmtCheck->execute([$comment_id]);
@@ -67,9 +83,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $pdo->prepare("DELETE FROM product_comments WHERE id = ?")->execute([$comment_id]);
             header("Location: detail.php?id=$id#comments-area");
             exit;
-        } else {
-             echo "<script>alert('Gagal menghapus komentar.'); window.location='detail.php?id=$id';</script>";
-             exit;
         }
     }
 
@@ -100,7 +113,7 @@ $stmtCount = $pdo->prepare("SELECT COUNT(*) FROM products WHERE user_id = ? AND 
 $stmtCount->execute([$product['user_id']]);
 $total_karya_siswa = $stmtCount->fetchColumn();
 
-// Cek Status Like User Login
+// Cek Status Like User Login (Initial State)
 $is_liked = false;
 if ($current_user_id) {
     $stmtLikeCheck = $pdo->prepare("SELECT id FROM product_likes WHERE product_id = ? AND user_id = ?");
@@ -108,7 +121,7 @@ if ($current_user_id) {
     if ($stmtLikeCheck->rowCount() > 0) $is_liked = true;
 }
 
-// Hitung Total Likes Real-time
+// Hitung Total Likes
 $stmtTotalLikes = $pdo->prepare("SELECT COUNT(*) FROM product_likes WHERE product_id = ?");
 $stmtTotalLikes->execute([$id]);
 $total_likes_count = $stmtTotalLikes->fetchColumn();
@@ -119,29 +132,21 @@ $stmtComments->execute([$id]);
 $comments = $stmtComments->fetchAll();
 $total_comments = count($comments);
 
-// --- LOGIKA GAMBAR KATEGORI (LOCAL STORAGE) ---
+// --- LOGIKA GAMBAR KATEGORI (Sama seperti sebelumnya) ---
 $categories = function_exists('getCategories') ? getCategories() : [];
-$catKey = $product['category']; // Nama Kategori dari DB (misal: "Kuliner", "Seni Rupa")
+$catKey = $product['category'];
 $catLabel = isset($categories[$catKey]) ? $categories[$catKey] : ($catKey ?? 'Umum');
-
 $iconPath = null;
-
-// 1. Cek KHUSUS untuk Kuliner -> makanan.jpg
 if ($catKey == 'Kuliner') {
     if (file_exists("assets/icons/makanan.jpg")) $iconPath = "assets/icons/makanan.jpg";
     elseif (file_exists("assets/icons/makanan.png")) $iconPath = "assets/icons/makanan.png";
 }
-
-// 2. Jika belum ketemu, cari sesuai nama kategori
 if (!$iconPath) {
-    $cleanKey = str_replace(' ', '', $catKey); // Hilangkan spasi
-    
+    $cleanKey = str_replace(' ', '', $catKey);
     if (file_exists("assets/icons/{$cleanKey}.jpg")) $iconPath = "assets/icons/{$cleanKey}.jpg";
     elseif (file_exists("assets/icons/{$cleanKey}.png")) $iconPath = "assets/icons/{$cleanKey}.png";
     elseif (file_exists("assets/icons/{$catKey}.jpg")) $iconPath = "assets/icons/{$catKey}.jpg"; 
 }
-
-// 3. Fallback jika tidak ada gambar
 if (!$iconPath) {
     $iconPath = "https://via.placeholder.com/200/e5e7eb/0f766e?text=" . substr($catKey, 0, 1);
 }
@@ -186,20 +191,16 @@ require_once 'layout/header.php';
             <p class="text-gray-500 leading-relaxed mb-6 text-base"><?= nl2br($product['description']) ?></p>
 
             <div class="mb-8">
-                <form method="POST">
-                    <input type="hidden" name="toggle_like" value="1">
-                    <button type="submit" class="flex items-center gap-3 px-6 py-3 rounded-full transition-all duration-300 font-bold border-2 <?= $is_liked ? 'bg-red-50 border-red-500 text-red-600 hover:bg-red-100' : 'bg-white border-gray-200 text-gray-500 hover:border-red-400 hover:text-red-500' ?>">
+                <button id="likeBtn" onclick="toggleLike(<?= $id ?>)" class="flex items-center gap-3 px-6 py-3 rounded-full transition-all duration-300 font-bold border-2 <?= $is_liked ? 'bg-red-50 border-red-500 text-red-600 hover:bg-red-100' : 'bg-white border-gray-200 text-gray-500 hover:border-red-400 hover:text-red-500' ?>">
+                    <span id="likeIcon">
                         <?php if($is_liked): ?>
                             <svg class="h-6 w-6 fill-current" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-                            <span>Disukai</span>
                         <?php else: ?>
                             <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"></path></svg>
-                            <span>Suka Karya Ini</span>
                         <?php endif; ?>
-                        
-                        <span class="ml-1 bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded-full"><?= number_format($total_likes_count) ?></span>
-                    </button>
-                </form>
+                    </span>
+                    <span id="likeText"><?= $is_liked ? 'Disukai' : 'Suka Karya Ini' ?></span>
+                </button>
             </div>
 
             <?php 
@@ -239,7 +240,10 @@ require_once 'layout/header.php';
                     </div>
                     <div>
                         <p class="text-xs text-gray-500 font-bold uppercase tracking-wider">Disukai</p>
-                        <p class="font-bold text-gray-800 text-lg"><?= number_format($total_likes_count) ?> <span class="text-xs font-normal text-gray-400">orang</span></p> 
+                        <p class="font-bold text-gray-800 text-lg">
+                            <span id="likeCountDisplay"><?= number_format($total_likes_count) ?></span> 
+                            <span class="text-xs font-normal text-gray-400">orang</span>
+                        </p> 
                     </div>
                 </div>
 
@@ -370,10 +374,61 @@ require_once 'layout/header.php';
 </div>
 
 <script>
+// Fungsi Ganti Gambar
 function changeImage(src) { document.getElementById('mainImage').src = src; }
+
+// Fungsi Modal Report
 function toggleReport() {
     const modal = document.getElementById('reportModal');
     modal.classList.toggle('hidden'); modal.classList.toggle('flex');
 }
+
+// Fungsi AJAX Like (Tanpa Loading)
+function toggleLike(productId) {
+    // Kirim request ke file ini sendiri
+    const formData = new FormData();
+    formData.append('ajax_toggle_like', '1');
+    formData.append('product_id', productId);
+
+    fetch(window.location.href, {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'error') {
+            alert(data.message);
+            if(data.message.includes('login')) window.location.href = 'auth/login.php';
+        } else if (data.status === 'success') {
+            updateLikeUI(data.is_liked, data.new_count);
+        }
+    })
+    .catch(error => console.error('Error:', error));
+}
+
+// Fungsi Update Tampilan Tombol & Angka
+function updateLikeUI(isLiked, count) {
+    const btn = document.getElementById('likeBtn');
+    const iconSpan = document.getElementById('likeIcon');
+    const textSpan = document.getElementById('likeText');
+    const countDisplay = document.getElementById('likeCountDisplay');
+
+    // Update Angka
+    if(countDisplay) {
+        countDisplay.textContent = new Intl.NumberFormat('id-ID').format(count);
+    }
+
+    // Update Tombol & Icon
+    if (isLiked) {
+        btn.className = "flex items-center gap-3 px-6 py-3 rounded-full transition-all duration-300 font-bold border-2 bg-red-50 border-red-500 text-red-600 hover:bg-red-100";
+        iconSpan.innerHTML = '<svg class="h-6 w-6 fill-current" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>';
+        textSpan.textContent = "Disukai";
+    } else {
+        btn.className = "flex items-center gap-3 px-6 py-3 rounded-full transition-all duration-300 font-bold border-2 bg-white border-gray-200 text-gray-500 hover:border-red-400 hover:text-red-500";
+        iconSpan.innerHTML = '<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"></path></svg>';
+        textSpan.textContent = "Suka Karya Ini";
+    }
+}
 </script>
+
 <?php require_once 'layout/footer.php'; ?>

@@ -70,9 +70,9 @@ require_once 'layout/header.php';
 ?>
 
 <style>
-    .profile-gradient { background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); }
+    .profile-gradient { background: linear-gradient(135deg, #10df6d 0%, #10df6d 100%); }
     .active-tab {
-        background-color: #ede9fe; color: #6d28d9; border-left: 4px solid #7c3aed;
+        background-color: #ede9fe; color: #b000f0; border-left: 4px solid #f8fbf9;
     }
     .inactive-tab {
         color: #64748b; border-left: 4px solid transparent;
